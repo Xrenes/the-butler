@@ -20,6 +20,12 @@ This is a **UI demo**. It runs entirely in the browser with sample data; refresh
 | Phone app (`mobile/`, Expo): tasks, calendar, finance, phone alarms, data saved on the phone | Built; test it with Expo Go (see `mobile/README.md`) |
 | Sign-in, sync, sending Telegram reminders, backups | Not built yet |
 
+## Live website
+
+**https://xrenes.github.io/the-butler/** — the web demo, hosted on GitHub Pages. Every push to `main`
+runs typecheck, lint and tests, then rebuilds and publishes the site (`.github/workflows/pages.yml`).
+Data is sample data in the browser only, so nothing you enter is stored or sent anywhere.
+
 ## Run it
 
 ```bash
