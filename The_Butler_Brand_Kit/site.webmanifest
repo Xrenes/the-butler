@@ -1,0 +1,29 @@
+{
+  "name": "The Butler",
+  "short_name": "Butler",
+  "description": "Your personal command center",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#101727",
+  "theme_color": "#101727",
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/android-adaptive-foreground-432.png",
+      "sizes": "432x432",
+      "type": "image/png",
+      "purpose": "monochrome"
+    }
+  ]
+}

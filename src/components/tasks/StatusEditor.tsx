@@ -39,8 +39,8 @@ function StatusForm({ task, onClose }: { task: Task; onClose: () => void }) {
               role="radio"
               aria-checked={active}
               onClick={() => setSelected(status)}
-              className={`flex items-center gap-4 rounded-2xl border p-3 text-left transition-colors ${
-                active ? "border-fg bg-surface" : "border-line hover:bg-surface"
+              className={`surface-card flex items-center gap-4 rounded-2xl p-3 text-left transition-[filter] ${
+                active ? "shadow-[0_0_22px_-8px_var(--accent-glow)] ring-1 ring-accent" : "hover:brightness-110"
               }`}
             >
               <StatusSquare status={status} size={32} />

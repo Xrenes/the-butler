@@ -36,10 +36,11 @@ function categoryColors(tasks: readonly Task[], categoryById: ReadonlyMap<string
 interface CalendarScreenProps {
   now: Date;
   onStatus: (task: Task) => void;
+  onEdit: (task: Task) => void;
 }
 
 /** Weekly only: Mon–Sun strip, selected day's progress and tasks. No task creation here. */
-export function CalendarScreen({ now, onStatus }: CalendarScreenProps) {
+export function CalendarScreen({ now, onStatus, onEdit }: CalendarScreenProps) {
   const { state } = useDemo();
   const today = dayKeyOf(now, TIME_ZONE);
   const [selectedDay, setSelectedDay] = useState<DayKey>(today);
@@ -51,13 +52,15 @@ export function CalendarScreen({ now, onStatus }: CalendarScreenProps) {
 
   return (
     <div className="space-y-[clamp(20px,3vw,32px)]">
-      <section className="flex items-center justify-between gap-3">
-        <CircleButton icon="chevron-left" label="Previous week" onClick={() => shiftWeek(-1)} />
-        <div className="min-w-0 text-center">
+      <section className="flex items-end justify-between gap-3">
+        <div className="min-w-0">
           <p className="text-sm text-fg-2">Week of</p>
           <h1 className="text-title">{formatWeekRange(weekStart)}</h1>
         </div>
-        <CircleButton icon="chevron-right" label="Next week" onClick={() => shiftWeek(1)} />
+        <div className="flex shrink-0 gap-2.5">
+          <CircleButton icon="chevron-left" label="Previous week" onClick={() => shiftWeek(-1)} />
+          <CircleButton icon="chevron-right" label="Next week" onClick={() => shiftWeek(1)} />
+        </div>
       </section>
 
       <motion.div
@@ -68,7 +71,7 @@ export function CalendarScreen({ now, onStatus }: CalendarScreenProps) {
           if (info.offset.x < -SWIPE_DISTANCE) shiftWeek(1);
           else if (info.offset.x > SWIPE_DISTANCE) shiftWeek(-1);
         }}
-        className="grid touch-pan-y grid-cols-7 gap-1 rounded-[28px] bg-surface p-[clamp(6px,1.4vw,10px)]"
+        className="grid touch-pan-y grid-cols-7 gap-[clamp(5px,1.6vw,12px)]"
       >
         {weekDays(weekStart).map((day) => {
           const selected = day === selectedDay;
@@ -79,21 +82,19 @@ export function CalendarScreen({ now, onStatus }: CalendarScreenProps) {
               aria-pressed={selected}
               aria-label={formatLongDate(day)}
               onClick={() => setSelectedDay(day)}
-              className="relative flex flex-col items-center gap-1.5 rounded-[22px] py-[clamp(10px,2vw,16px)]"
+              className="surface-card relative flex flex-col items-center gap-1.5 rounded-[22px] py-[clamp(12px,2.4vw,18px)]"
             >
               {selected ? (
                 <motion.span
                   layoutId="calendar-day"
-                  className="absolute inset-0 rounded-[22px] bg-accent"
+                  className="surface-raised absolute inset-0 rounded-[22px] shadow-[0_0_22px_-6px_var(--accent-glow)] ring-1 ring-accent/70"
                   transition={{ type: "spring", stiffness: 420, damping: 34 }}
                 />
               ) : null}
-              <span className={`relative text-xs ${selected ? "text-white/80" : "text-fg-2"}`}>
-                {weekdayShort(day)}
-              </span>
+              <span className={`relative text-xs ${selected ? "text-fg" : "text-fg-3"}`}>{weekdayShort(day)}</span>
               <span
                 className={`relative text-[clamp(1.15rem,1rem+0.8vw,1.5rem)] tabular-nums ${
-                  selected ? "font-medium text-white" : "font-light"
+                  selected ? "font-semibold text-fg" : "font-medium text-fg-2"
                 }`}
               >
                 {dayOfMonth(day)}
@@ -102,8 +103,8 @@ export function CalendarScreen({ now, onStatus }: CalendarScreenProps) {
                 {categoryColors(tasksOnDay(state.tasks, day, TIME_ZONE), categoryById).map((color) => (
                   <span
                     key={color}
-                    className="h-1.5 w-1.5 rounded-full ring-1 ring-line"
-                    style={{ background: selected ? "#FFFFFF" : color }}
+                    className="h-1.5 w-1.5 rounded-full"
+                    style={{ background: color, boxShadow: `0 0 6px ${color}` }}
                   />
                 ))}
               </span>
@@ -136,12 +137,14 @@ export function CalendarScreen({ now, onStatus }: CalendarScreenProps) {
           <TickProgress percent={progress.percent} />
           <p className="text-sm text-fg-2">{motivationLine(progress)}</p>
         </Card>
-        <Card>
+        <section>
           <SectionTitle>Tasks</SectionTitle>
           {dayTasks.length === 0 ? (
-            <EmptyState icon="calendar" title="Nothing on this day" hint="Plan new tasks from Home." />
+            <Card>
+              <EmptyState icon="calendar" title="Nothing on this day" hint="Plan new tasks from Home." />
+            </Card>
           ) : (
-            <ul>
+            <ul className="space-y-2">
               {dayTasks.map((task) => {
                 const category = categoryById.get(task.categoryId);
                 return category ? (
@@ -151,12 +154,13 @@ export function CalendarScreen({ now, onStatus }: CalendarScreenProps) {
                     category={category}
                     meta={formatTime(new Date(task.dueAt), TIME_ZONE)}
                     onStatus={() => onStatus(task)}
+                    onEdit={() => onEdit(task)}
                   />
                 ) : null;
               })}
             </ul>
           )}
-        </Card>
+        </section>
       </div>
     </div>
   );

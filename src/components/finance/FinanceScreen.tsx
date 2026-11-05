@@ -119,18 +119,24 @@ function FinanceDashboard() {
   return (
     <div className="grid grid-cols-1 gap-[clamp(16px,2.4vw,28px)] lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
       <div className="min-w-0 space-y-[clamp(16px,2.4vw,28px)]">
-        <section className="ribbed relative isolate overflow-hidden rounded-[32px] bg-brand-gradient p-[clamp(20px,4vw,32px)] text-white">
-          <div className="relative z-10 flex items-start justify-between gap-4">
-            <div className="min-w-0">
-              <p className="text-sm text-white/70">Available balance</p>
-              <p className="text-display mt-3 truncate">
-                <CountUp value={balances.total} format={formatMinor} />
-              </p>
-              <p className="mt-3 text-sm text-white/70">{accounts.length} accounts · updated just now</p>
+        <div className="relative pt-7">
+          {/* Cards peeking out from behind, like the reference's card stack. */}
+          <span aria-hidden className="surface-raised absolute inset-x-[10%] top-0 h-24 rounded-[32px] opacity-40" />
+          <span aria-hidden className="surface-raised absolute inset-x-[5%] top-3.5 h-24 rounded-[32px] opacity-70" />
+          <section className="ribbed relative isolate overflow-hidden rounded-[32px] bg-brand-gradient p-[clamp(20px,4vw,32px)] text-white shadow-[0_22px_40px_-22px_var(--accent-glow)] ring-1 ring-white/10">
+            <span aria-hidden className="pointer-events-none absolute -top-24 -left-16 h-56 w-56 rounded-full bg-white/10 blur-3xl" />
+            <div className="relative z-10 flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <p className="text-sm text-white/70">Available balance</p>
+                <p className="text-display mt-3 truncate">
+                  <CountUp value={balances.total} format={formatMinor} />
+                </p>
+                <p className="mt-3 text-sm text-white/70">{accounts.length} accounts · updated just now</p>
+              </div>
+              <CircleButton icon="lock" label="Lock finance" variant="glass" onClick={() => dispatch({ type: "pin/lock" })} />
             </div>
-            <CircleButton icon="lock" label="Lock finance" variant="glass" onClick={() => dispatch({ type: "pin/lock" })} />
-          </div>
-        </section>
+          </section>
+        </div>
 
         <section>
           <SectionTitle
@@ -173,7 +179,7 @@ function FinanceDashboard() {
           <button
             type="button"
             onClick={() => sheets.open({ kind: "amount" })}
-            className="mt-4 block w-full rounded-3xl bg-surface-2 px-5 py-4 text-left transition-colors hover:bg-line"
+            className="surface-well mt-4 block w-full rounded-3xl border border-[var(--card-edge)] px-5 py-4 text-left transition-[filter] hover:brightness-125"
           >
             <span className="block text-xs text-fg-2">Amount — tap to type</span>
             <span className={`text-display-sm block truncate ${amountText ? "text-fg" : "text-fg-3"}`}>
@@ -219,11 +225,11 @@ function FinanceDashboard() {
         </Card>
       </div>
 
-      <Card className="lg:sticky lg:top-6 lg:self-start">
+      <section className="min-w-0 lg:sticky lg:top-6 lg:self-start">
         <SectionTitle action={<span className="text-xs text-fg-3">{state.txns.length} entries</span>}>
           Recent activity
         </SectionTitle>
-        <ul className="divide-y divide-line">
+        <ul className="space-y-2">
           <AnimatePresence initial={false}>
             {sortNewestFirst(state.txns)
               .slice(0, RECENT_LIMIT)
@@ -232,7 +238,7 @@ function FinanceDashboard() {
               ))}
           </AnimatePresence>
         </ul>
-      </Card>
+      </section>
 
       <AmountSheet
         open={sheet?.open === true && sheet.value.kind === "amount"}
@@ -266,12 +272,12 @@ interface AccountCardProps {
 function AccountCard({ account, balance, selected, onSelect, onEdit }: AccountCardProps) {
   return (
     <div
-      className={`relative min-w-[clamp(150px,44vw,220px)] snap-start rounded-3xl bg-surface p-4 ring-[1.5px] transition-shadow md:min-w-0 ${
-        selected ? "ring-accent" : "ring-transparent"
+      className={`surface-card relative min-w-[clamp(150px,44vw,220px)] snap-start rounded-3xl p-4 ring-[1.5px] transition-shadow md:min-w-0 ${
+        selected ? "shadow-[0_0_26px_-8px_var(--accent-glow)] ring-accent" : "ring-transparent"
       }`}
     >
       <button type="button" aria-pressed={selected} onClick={onSelect} className="block w-full text-left">
-        <span className="grid h-10 w-10 place-items-center rounded-full bg-surface-2">
+        <span className="surface-raised grid h-10 w-10 place-items-center rounded-full">
           <Icon name={account.icon} size={20} />
         </span>
         <span className="mt-4 block text-sm text-fg-2">{account.name}</span>
@@ -325,9 +331,14 @@ function TxnRow({ txn, nameById }: { txn: Txn; nameById: ReadonlyMap<string, str
   const today = dayKeyOf(new Date(), TIME_ZONE);
   const when = `${formatDayLabel(dayKeyOf(occurred, TIME_ZONE), today)} · ${formatTime(occurred, TIME_ZONE)}`;
   return (
-    <motion.li layout initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} className="flex items-center gap-3 py-3">
+    <motion.li
+      layout
+      initial={{ opacity: 0, x: -8 }}
+      animate={{ opacity: 1, x: 0 }}
+      className="surface-card flex items-center gap-3 rounded-[20px] px-3 py-2.5"
+    >
       <span
-        className={`grid h-10 w-10 shrink-0 place-items-center rounded-full bg-surface-2 ${view.tone === "out" ? "text-accent" : "text-fg"}`}
+        className={`surface-raised grid h-10 w-10 shrink-0 place-items-center rounded-full ${view.tone === "out" ? "text-accent" : "text-fg"}`}
       >
         <Icon name={view.icon} size={18} />
       </span>

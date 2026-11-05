@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, type CSSProperties } from "react";
+import { useEffect, useId, type CSSProperties, type ReactNode } from "react";
 import { animate, motion, useMotionValue, useTransform } from "motion/react";
 import { Icon } from "@/components/icons/Icon";
 import { zonedParts } from "@/lib/domain/dates";
@@ -132,7 +132,7 @@ export function DayPulse({ tasks, now, timeZone }: DayPulseProps) {
           initial={{ scale: 0 }}
           animate={{ scale: 1 }}
           transition={{ delay: 1.1, type: "spring", stiffness: 300, damping: 18 }}
-          className="absolute grid h-[clamp(28px,6vw,36px)] w-[clamp(28px,6vw,36px)] -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-white text-accent shadow-[0_6px_20px_rgba(0,0,0,0.45)]"
+          className="accent-fill absolute grid h-[clamp(28px,6vw,36px)] w-[clamp(28px,6vw,36px)] -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full"
           style={{ left: `${nowPercent}%`, top: `${(BASELINE / PULSE_HEIGHT) * 100}%` }}
         >
           <Icon name="clock" size={16} strokeWidth={2} />
@@ -140,6 +140,100 @@ export function DayPulse({ tasks, now, timeZone }: DayPulseProps) {
       </div>
       <TickRuler />
     </figure>
+  );
+}
+
+const GAUGE_WIDTH = 320;
+const GAUGE_HEIGHT = 266;
+const GAUGE_CENTER_X = 160;
+const GAUGE_CENTER_Y = 148;
+const GAUGE_RADIUS = 124;
+const GAUGE_STROKE = 14;
+/** The arc opens at the bottom: it starts at 135° and sweeps 270° clockwise. */
+const GAUGE_START_DEG = 135;
+const GAUGE_SWEEP_DEG = 270;
+
+function gaugePoint(degrees: number, radius: number): string {
+  const radians = (degrees * Math.PI) / 180;
+  const x = GAUGE_CENTER_X + radius * Math.cos(radians);
+  const y = GAUGE_CENTER_Y + radius * Math.sin(radians);
+  return `${x.toFixed(2)} ${y.toFixed(2)}`;
+}
+
+function gaugeArc(radius: number): string {
+  return `M${gaugePoint(GAUGE_START_DEG, radius)} A${radius} ${radius} 0 1 1 ${gaugePoint(GAUGE_START_DEG + GAUGE_SWEEP_DEG, radius)}`;
+}
+
+interface ArcGaugeProps {
+  /** 0 to 100. */
+  percent: number;
+  label: string;
+  /** Sits in the middle of the arc, usually the big number. */
+  children: ReactNode;
+  /** Sits in the opening at the bottom of the arc. */
+  footer?: ReactNode;
+}
+
+/** Open ring with a glowing accent arc and a dotted inner ring, after the reference's budget gauge. */
+export function ArcGauge({ percent, label, children, footer }: ArcGaugeProps) {
+  const id = useId().replace(/:/g, "");
+  const value = Math.min(100, Math.max(0, percent)) / 100;
+  return (
+    <div className="mx-auto w-full max-w-[340px]" style={{ containerType: "inline-size" }}>
+      <div className="relative">
+        <svg
+          viewBox={`0 0 ${GAUGE_WIDTH} ${GAUGE_HEIGHT}`}
+          className="block w-full overflow-visible"
+          role="progressbar"
+          aria-label={label}
+          aria-valuenow={Math.round(percent)}
+          aria-valuemin={0}
+          aria-valuemax={100}
+        >
+          <defs>
+            <linearGradient id={`${id}-arc`} gradientUnits="userSpaceOnUse" x1="40" y1="150" x2="280" y2="150">
+              <stop offset="0" style={{ stopColor: "var(--accent)" }} />
+              <stop offset="1" style={{ stopColor: "var(--accent-hi)" }} />
+            </linearGradient>
+            <radialGradient id={`${id}-glow`}>
+              <stop offset="0" style={{ stopColor: "var(--accent)", stopOpacity: 0.14 }} />
+              <stop offset="1" style={{ stopColor: "var(--accent)", stopOpacity: 0 }} />
+            </radialGradient>
+          </defs>
+          <circle cx={GAUGE_CENTER_X} cy={GAUGE_CENTER_Y} r={GAUGE_RADIUS - 8} fill={`url(#${id}-glow)`} />
+          <path
+            d={gaugeArc(GAUGE_RADIUS - 26)}
+            fill="none"
+            stroke="var(--gauge-dots)"
+            strokeWidth={3}
+            strokeLinecap="round"
+            strokeDasharray="0.1 8.3"
+          />
+          <path
+            d={gaugeArc(GAUGE_RADIUS)}
+            fill="none"
+            stroke="var(--gauge-track)"
+            strokeWidth={GAUGE_STROKE}
+            strokeLinecap="round"
+          />
+          {value > 0 ? (
+            <motion.path
+              d={gaugeArc(GAUGE_RADIUS)}
+              fill="none"
+              stroke={`url(#${id}-arc)`}
+              strokeWidth={GAUGE_STROKE}
+              strokeLinecap="round"
+              initial={{ pathLength: 0 }}
+              animate={{ pathLength: value }}
+              transition={{ duration: 1.1, ease: [0.22, 0.8, 0.3, 1] }}
+              style={{ filter: "drop-shadow(0 0 7px var(--accent-glow))" }}
+            />
+          ) : null}
+        </svg>
+        <div className="absolute inset-0 flex flex-col items-center justify-center pt-[11%] text-center">{children}</div>
+      </div>
+      {footer ? <div className="-mt-[4%] flex justify-center">{footer}</div> : null}
+    </div>
   );
 }
 

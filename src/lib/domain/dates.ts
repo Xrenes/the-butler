@@ -42,17 +42,45 @@ function pad2(value: number): string {
   return String(value).padStart(2, "0");
 }
 
-export function zonedParts(date: Date, timeZone: string): ZonedParts {
-  const parts = partsFormatter(timeZone).formatToParts(date);
-  const read = (type: Intl.DateTimeFormatPartTypes): number =>
-    Number(parts.find((part) => part.type === type)?.value);
+/**
+ * Zones that keep one offset all year, in minutes ahead of UTC. Only used when the JavaScript
+ * engine's Intl cannot work out time zone parts (some phone engines have partial Intl support).
+ */
+const FIXED_OFFSET_MINUTES: Readonly<Record<string, number>> = { "Asia/Dhaka": 360, UTC: 0 };
+
+function intlParts(date: Date, timeZone: string): ZonedParts | null {
+  try {
+    const parts = partsFormatter(timeZone).formatToParts(date);
+    const read = (type: Intl.DateTimeFormatPartTypes): number =>
+      Number(parts.find((part) => part.type === type)?.value);
+    const result = {
+      year: read("year"),
+      month: read("month"),
+      day: read("day"),
+      hour: read("hour") % 24,
+      minute: read("minute"),
+    };
+    return Object.values(result).every(Number.isFinite) ? result : null;
+  } catch {
+    return null;
+  }
+}
+
+function fixedOffsetParts(date: Date, timeZone: string): ZonedParts {
+  const offset = FIXED_OFFSET_MINUTES[timeZone];
+  if (offset === undefined) throw new Error(`Time zone not supported on this device: ${timeZone}`);
+  const shifted = new Date(date.getTime() + offset * MS_PER_MINUTE);
   return {
-    year: read("year"),
-    month: read("month"),
-    day: read("day"),
-    hour: read("hour") % 24,
-    minute: read("minute"),
+    year: shifted.getUTCFullYear(),
+    month: shifted.getUTCMonth() + 1,
+    day: shifted.getUTCDate(),
+    hour: shifted.getUTCHours(),
+    minute: shifted.getUTCMinutes(),
   };
+}
+
+export function zonedParts(date: Date, timeZone: string): ZonedParts {
+  return intlParts(date, timeZone) ?? fixedOffsetParts(date, timeZone);
 }
 
 export function toDayKey(year: number, month: number, day: number): DayKey {
@@ -124,9 +152,16 @@ export function to24Hour(hour12: number, meridiem: Meridiem): number {
 }
 
 export function formatTime(date: Date, timeZone: string): string {
-  return new Intl.DateTimeFormat("en-US", { timeZone, hour: "numeric", minute: "2-digit" }).format(
-    date,
-  );
+  try {
+    return new Intl.DateTimeFormat("en-US", { timeZone, hour: "numeric", minute: "2-digit" }).format(
+      date,
+    );
+  } catch {
+    // Same shape as en-US ("1:30 PM") when the engine cannot format in that time zone.
+    const parts = zonedParts(date, timeZone);
+    const clock = to12Hour(parts.hour);
+    return `${clock.hour12}:${pad2(parts.minute)} ${clock.meridiem}`;
+  }
 }
 
 function formatDay(day: DayKey, options: Intl.DateTimeFormatOptions): string {

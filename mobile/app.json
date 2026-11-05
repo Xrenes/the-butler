@@ -1,0 +1,37 @@
+{
+  "expo": {
+    "name": "The Butler",
+    "slug": "the-butler",
+    "scheme": "butler",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "backgroundColor": "#111111",
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "app.thebutler.mobile"
+    },
+    "android": {
+      "package": "app.thebutler.mobile",
+      "adaptiveIcon": {
+        "backgroundColor": "#111111",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "plugins": [
+      "expo-notifications",
+      "expo-secure-store",
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "The Butler uses Face ID to confirm it's you before resetting your finance PIN."
+        }
+      ],
+      "expo-font"
+    ]
+  }
+}

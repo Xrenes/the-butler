@@ -18,6 +18,10 @@ export interface DemoSettings {
   theme: "dark" | "light";
   reduceMotion: boolean;
   transfersEnabled: boolean;
+  /** Linked Telegram chat, or null. The bot token is a server secret and never lives here. */
+  telegramChatId: string | null;
+  /** Show a reminder on screen, with its category, when it comes due. */
+  inAppAlarm: boolean;
 }
 
 export interface DemoData {
@@ -150,6 +154,13 @@ export function createSeed(now: Date, timeZone: string): DemoData {
     tasks: seedTasks(now, timeZone, categories, random),
     resources,
     txns: seedLedger(now, timeZone, resources),
-    settings: { displayName: "", theme: "dark", reduceMotion: false, transfersEnabled: true },
+    settings: {
+      displayName: "",
+      theme: "dark",
+      reduceMotion: false,
+      transfersEnabled: true,
+      telegramChatId: null,
+      inAppAlarm: true,
+    },
   };
 }

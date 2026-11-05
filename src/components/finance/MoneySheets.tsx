@@ -158,8 +158,8 @@ function AccountForm({ resource, onClose }: { resource: Resource | null; onClose
               aria-pressed={option === icon}
               aria-label={option}
               onClick={() => setIcon(option)}
-              className={`grid h-12 w-12 place-items-center rounded-full border transition-colors ${
-                option === icon ? "border-accent bg-accent text-white" : "border-line text-fg-2 hover:text-fg"
+              className={`grid h-12 w-12 place-items-center rounded-full transition-colors ${
+                option === icon ? "accent-fill" : "surface-card text-fg-2 hover:text-fg"
               }`}
             >
               <Icon name={option} size={22} />

@@ -3,8 +3,16 @@
 import { AnimatePresence } from "motion/react";
 import { TIME_ZONE, useDemo } from "@/components/demo/store";
 import { UpcomingRow } from "@/components/tasks/rows";
-import { CountUp, DayPulse, DotMatrix } from "@/components/ui/charts";
-import { Card, CircleButton, EmptyState, Pill, SectionTitle, Stat } from "@/components/ui/primitives";
+import { ArcGauge, CountUp, DayPulse, DotMatrix } from "@/components/ui/charts";
+import {
+  Card,
+  CircleButton,
+  EmptyState,
+  Pill,
+  STATUS_HEX,
+  SectionTitle,
+  StatTile,
+} from "@/components/ui/primitives";
 import { dayKeyOf, formatDayLabel, formatLongDate, formatTime } from "@/lib/domain/dates";
 import { completedPerDay, motivationLine, progressOf, weeklyLabels } from "@/lib/domain/progress";
 import { groupByDay, tasksOnDay, upcomingTasks } from "@/lib/domain/tasks";
@@ -33,44 +41,65 @@ export function HomeScreen({ now, onAdd, onEdit }: HomeScreenProps) {
     progress.total > 0 ? `In progress · ${progress.done} of ${progress.total}` : "Nothing planned yet";
 
   return (
-    <div className="space-y-[clamp(22px,3.2vw,36px)]">
+    <div className="space-y-[clamp(20px,3vw,32px)]">
       <section className="flex items-start justify-between gap-4">
         <div className="min-w-0 space-y-2">
           <p className="text-sm text-fg-2">{formatLongDate(today)}</p>
           <h1 className="text-title">Today&apos;s focus</h1>
-          <Pill icon="clock">{statusText}</Pill>
         </div>
-        <CircleButton icon="plus" label="Add task" variant="accent" size="xl" onClick={onAdd} />
+        {/* Phones add tasks from the "+" in the bottom bar. */}
+        <div className="hidden shrink-0 lg:block">
+          <CircleButton icon="plus" label="Add task" variant="accent" size="xl" onClick={onAdd} />
+        </div>
       </section>
 
-      <DayPulse tasks={todays} now={now} timeZone={TIME_ZONE} />
+      <div className="grid grid-cols-1 gap-[clamp(16px,2.4vw,28px)] lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:items-start">
+        <section className="surface-hero rounded-[32px] p-[clamp(18px,4vw,28px)] lg:sticky lg:top-6 lg:col-start-1 lg:row-span-3">
+          <ArcGauge
+            percent={progress.percent}
+            label="Completed today"
+            footer={<Pill icon="clock">{statusText}</Pill>}
+          >
+            <p className="text-sm text-fg-2">Completed</p>
+            <p className="text-display mt-1" style={{ fontSize: "clamp(2.6rem, 19cqw, 4.4rem)" }}>
+              <CountUp value={progress.percent} format={String} />
+              <span className="ml-0.5 text-[0.36em] font-medium tracking-normal text-fg-2">%</span>
+            </p>
+          </ArcGauge>
+          <p className="mt-6 text-center text-sm text-fg-2">{motivationLine(progress)}</p>
+          <div className="mt-5 grid grid-cols-2 gap-3">
+            <StatTile
+              label="Done today"
+              value={`${progress.done}/${progress.total}`}
+              unit="tasks"
+              color={STATUS_HEX.C}
+            />
+            <StatTile
+              label="Next up"
+              value={nextTask ? formatTime(new Date(nextTask.dueAt), TIME_ZONE) : "—"}
+            />
+          </div>
+        </section>
 
-      <section className="grid grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,1fr)] items-end gap-x-[clamp(12px,4vw,56px)]">
-        <div>
-          <p className="mb-1 text-sm">Completed</p>
-          <p className="text-display">
-            <CountUp value={progress.percent} format={String} />
-            <span className="ml-1 text-base font-normal tracking-normal text-fg-2">%</span>
-          </p>
-        </div>
-        <Stat label="Done today" value={`${progress.done}/${progress.total}`} unit="tasks" />
-        <Stat label="Next up" value={nextTask ? formatTime(new Date(nextTask.dueAt), TIME_ZONE) : "—"} />
-      </section>
-      <p className="-mt-3 text-sm text-fg-2">{motivationLine(progress)}</p>
+        <Card className="lg:col-start-2">
+          <SectionTitle>Timeline</SectionTitle>
+          <DayPulse tasks={todays} now={now} timeZone={TIME_ZONE} />
+        </Card>
 
-      <div className="grid grid-cols-1 gap-[clamp(16px,2.4vw,28px)] lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
-        <Card>
+        <section className="lg:col-start-2">
           <SectionTitle>Up next</SectionTitle>
           {groups.length === 0 ? (
-            <EmptyState icon="sparkles" title="You're all clear" hint="Add a task that moves you forward." />
+            <Card>
+              <EmptyState icon="sparkles" title="You're all clear" hint="Add a task that moves you forward." />
+            </Card>
           ) : (
             <div className="space-y-4">
               {groups.map((group) => (
                 <div key={group.day}>
-                  <p className="mb-1 px-2 text-xs font-medium tracking-wide text-fg-3 uppercase">
+                  <p className="mb-2 px-1 text-xs font-medium tracking-wide text-fg-3 uppercase">
                     {formatDayLabel(group.day, today)}
                   </p>
-                  <ul>
+                  <ul className="space-y-2">
                     <AnimatePresence initial={false}>
                       {group.tasks.map((task) => {
                         const category = categoryById.get(task.categoryId);
@@ -90,8 +119,9 @@ export function HomeScreen({ now, onAdd, onEdit }: HomeScreenProps) {
               ))}
             </div>
           )}
-        </Card>
-        <Card>
+        </section>
+
+        <Card className="lg:col-start-2">
           <SectionTitle
             action={
               <span className="text-xs text-fg-3">

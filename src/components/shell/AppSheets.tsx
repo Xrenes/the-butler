@@ -1,12 +1,15 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 import type { DemoSettings } from "@/components/demo/seed";
 import { TIME_ZONE, useDemo } from "@/components/demo/store";
 import { Icon, type IconName } from "@/components/icons/Icon";
+import { CategoryBadge } from "@/components/tasks/rows";
 import { Sheet } from "@/components/ui/Sheet";
-import { ChipButton, EmptyState, FIELD, Segmented, Toggle } from "@/components/ui/primitives";
+import { ChipButton, EmptyState, FIELD, PrimaryButton, Segmented, Toggle } from "@/components/ui/primitives";
+import { describeLead } from "@/lib/domain/alarms";
 import { dayKeyOf, formatDayLabel, formatTime } from "@/lib/domain/dates";
+import { parseChatId } from "@/lib/domain/telegram";
 import { sortByDue } from "@/lib/domain/tasks";
 
 const REMINDER_WINDOW_MS = 48 * 60 * 60 * 1000;
@@ -17,7 +20,7 @@ const THEMES = [
 
 function Group({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section className="rounded-3xl bg-surface px-4 py-3">
+    <section className="surface-group rounded-3xl px-4 py-3">
       <h3 className="mb-1 text-xs font-medium tracking-wide text-fg-3 uppercase">{title}</h3>
       {children}
     </section>
@@ -27,7 +30,7 @@ function Group({ title, children }: { title: string; children: ReactNode }) {
 function InfoRow({ icon, title, detail }: { icon: IconName; title: string; detail: string }) {
   return (
     <div className="flex items-start gap-3 py-2">
-      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-surface-2 text-fg-2">
+      <span className="surface-raised grid h-9 w-9 shrink-0 place-items-center rounded-full text-fg-2">
         <Icon name={icon} size={18} />
       </span>
       <span className="min-w-0">
@@ -35,6 +38,93 @@ function InfoRow({ icon, title, detail }: { icon: IconName; title: string; detai
         <span className="block text-xs text-fg-2">{detail}</span>
       </span>
     </div>
+  );
+}
+
+/** Chat ID only. The bot token is a server secret (TELEGRAM_BOT_TOKEN) and is never asked for here. */
+function TelegramSettings() {
+  const { state, dispatch } = useDemo();
+  const chatId = state.settings.telegramChatId;
+  const [draft, setDraft] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  const connect = () => {
+    const parsed = parseChatId(draft);
+    if (!parsed.ok) {
+      setError(parsed.error);
+      return;
+    }
+    dispatch({ type: "settings/update", patch: { telegramChatId: parsed.chatId } });
+    setDraft("");
+    setError(null);
+  };
+
+  if (chatId) {
+    return (
+      <>
+        <InfoRow
+          icon="send"
+          title="Connected"
+          detail={`Chat ID ${chatId}. Reminders will be sent here once the server is running.`}
+        />
+        <div className="flex flex-wrap gap-2 py-2">
+          <ChipButton
+            icon="close"
+            onClick={() => dispatch({ type: "settings/update", patch: { telegramChatId: null } })}
+          >
+            Disconnect
+          </ChipButton>
+        </div>
+        <p className="pb-1 text-xs text-fg-3">Demo: nothing is sent yet, and the chat ID is forgotten on refresh.</p>
+      </>
+    );
+  }
+
+  return (
+    <form
+      className="space-y-3"
+      onSubmit={(event) => {
+        event.preventDefault();
+        connect();
+      }}
+    >
+      <InfoRow
+        icon="send"
+        title="Not connected"
+        detail="Add the numeric chat ID of the Telegram chat that should receive your reminders."
+      />
+      <label className="block">
+        <span className="mb-2 block text-xs text-fg-2">Telegram chat ID</span>
+        <input
+          value={draft}
+          onChange={(event) => {
+            setDraft(event.target.value);
+            setError(null);
+          }}
+          inputMode="numeric"
+          autoComplete="off"
+          maxLength={20}
+          placeholder="e.g. 123456789"
+          aria-invalid={error ? true : undefined}
+          className={FIELD}
+        />
+      </label>
+      {error ? (
+        <p role="alert" className="text-sm text-accent">
+          {error}
+        </p>
+      ) : null}
+      <div className="flex">
+        <PrimaryButton type="submit" disabled={!draft.trim()}>
+          Connect
+        </PrimaryButton>
+      </div>
+      <p className="pb-1 text-xs text-fg-3">
+        Your bot token is a secret, so it is never entered or kept in the browser. It goes in the server&apos;s{" "}
+        <span className="font-medium text-fg-2">.env.local</span> as TELEGRAM_BOT_TOKEN. Demo: the chat ID is
+        forgotten on refresh.
+      </p>
+    </form>
   );
 }
 
@@ -70,6 +160,15 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
             onChange={(reduceMotion) => update({ reduceMotion })}
           />
         </Group>
+        <Group title="Alarms">
+          <Toggle
+            icon="bell"
+            label="On-screen alarm"
+            description="When a reminder is due, show the task with its category on screen."
+            checked={settings.inAppAlarm}
+            onChange={(inAppAlarm) => update({ inAppAlarm })}
+          />
+        </Group>
         <Group title="Finance">
           <Toggle
             icon="transfer"
@@ -87,11 +186,7 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
           </div>
         </Group>
         <Group title="Telegram">
-          <InfoRow
-            icon="send"
-            title="Not connected"
-            detail="Linking your Telegram account becomes available once the server is running."
-          />
+          <TelegramSettings />
         </Group>
         <Group title="Security">
           <InfoRow
@@ -109,6 +204,7 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
 export function RemindersSheet({ open, onClose, now }: { open: boolean; onClose: () => void; now: Date }) {
   const { state } = useDemo();
   const today = dayKeyOf(now, TIME_ZONE);
+  const categoryById = new Map(state.categories.map((category) => [category.id, category]));
   const soon = sortByDue(
     state.tasks.filter((task) => {
       const due = new Date(task.dueAt).getTime();
@@ -129,15 +225,20 @@ export function RemindersSheet({ open, onClose, now }: { open: boolean; onClose:
         <ul className="divide-y divide-line pb-2">
           {soon.map((task) => {
             const due = new Date(task.dueAt);
+            const category = categoryById.get(task.categoryId);
             return (
               <li key={task.id} className="flex items-center gap-3 py-3">
-                <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-accent text-white">
-                  <Icon name="bell" size={18} />
-                </span>
+                {category ? (
+                  <CategoryBadge category={category} />
+                ) : (
+                  <span className="accent-fill grid h-10 w-10 shrink-0 place-items-center rounded-full">
+                    <Icon name="bell" size={18} />
+                  </span>
+                )}
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-medium">{task.title}</span>
-                  <span className="block text-xs text-fg-2">
-                    Telegram · {task.reminder.leadMinutes === 0 ? "at the time" : `${task.reminder.leadMinutes} min before`}
+                  <span className="block truncate text-xs text-fg-2">
+                    {category?.name ?? "No category"} · {describeLead(task.reminder.leadMinutes)}
                   </span>
                 </span>
                 <span className="text-right text-sm tabular-nums">

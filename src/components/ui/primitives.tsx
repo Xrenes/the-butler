@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { motion } from "motion/react";
 import { Icon, type IconName } from "@/components/icons/Icon";
 import type { MarkedStatus, TaskStatus } from "@/lib/domain/types";
@@ -13,8 +13,10 @@ export const STATUS_LABEL: Record<MarkedStatus, string> = {
   H: "On hold",
 };
 
+const DEFAULT_ACCENT = "var(--accent)";
+
 export const FIELD =
-  "w-full rounded-2xl bg-surface-2 px-4 py-3 text-fg outline-none transition-shadow placeholder:text-fg-3 focus:ring-2 focus:ring-accent";
+  "surface-well w-full rounded-2xl border border-[var(--card-edge)] px-4 py-3 text-fg outline-none transition-shadow placeholder:text-fg-3 focus:ring-2 focus:ring-accent";
 
 const LIGHT_LUMINANCE = 0.6;
 
@@ -38,10 +40,10 @@ const CIRCLE_SIZE: Record<CircleSize, string> = {
 };
 const CIRCLE_ICON: Record<CircleSize, number> = { sm: 16, md: 20, lg: 24, xl: 26 };
 const CIRCLE_VARIANT: Record<CircleVariant, string> = {
-  dark: "bg-surface-2 text-fg hover:bg-line",
-  accent: "bg-accent text-white shadow-[0_10px_30px_-8px_rgba(216,48,54,0.7)] hover:brightness-110",
-  ghost: "border border-line text-fg-2 hover:bg-surface-2 hover:text-fg",
-  glass: "bg-black/25 text-white hover:bg-black/40",
+  dark: "surface-raised text-fg hover:brightness-110",
+  accent: "accent-fill hover:brightness-110",
+  ghost: "border border-[var(--card-edge)] bg-fg/[0.03] text-fg-2 hover:bg-fg/[0.08] hover:text-fg",
+  glass: "border border-white/15 bg-white/10 text-white backdrop-blur hover:bg-white/20",
 };
 
 interface CircleButtonProps {
@@ -80,8 +82,8 @@ export function CircleButton({
 
 export function Pill({ children, icon }: { children: ReactNode; icon?: IconName }) {
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-lg bg-dark-grey/80 px-2.5 py-1 text-xs font-medium text-white">
-      {icon ? <Icon name={icon} size={14} strokeWidth={2} /> : null}
+    <span className="surface-raised inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium text-fg">
+      {icon ? <Icon name={icon} size={14} strokeWidth={2} className="text-accent" /> : null}
       {children}
     </span>
   );
@@ -100,8 +102,10 @@ export function ChipButton({ children, onClick, icon, active = false }: ChipButt
       type="button"
       onClick={onClick}
       aria-pressed={active}
-      className={`inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full border px-3.5 text-sm transition-colors ${
-        active ? "border-accent bg-accent text-white" : "border-line text-fg-2 hover:bg-surface-2 hover:text-fg"
+      className={`inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full px-3.5 text-sm transition-[filter,color] ${
+        active
+          ? "accent-fill border border-transparent font-medium"
+          : "surface-card text-fg-2 hover:text-fg hover:brightness-110"
       }`}
     >
       {icon ? <Icon name={icon} size={16} /> : null}
@@ -112,14 +116,14 @@ export function ChipButton({ children, onClick, icon, active = false }: ChipButt
 
 export function Card({ children, className = "" }: { children: ReactNode; className?: string }) {
   return (
-    <section className={`rounded-[28px] bg-surface p-[clamp(16px,3.2vw,26px)] ${className}`}>{children}</section>
+    <section className={`surface-card rounded-[28px] p-[clamp(16px,3.2vw,26px)] ${className}`}>{children}</section>
   );
 }
 
 export function SectionTitle({ children, action }: { children: ReactNode; action?: ReactNode }) {
   return (
     <div className="mb-3 flex items-center justify-between gap-3">
-      <h2 className="text-base font-medium">{children}</h2>
+      <h2 className="text-base font-semibold tracking-tight">{children}</h2>
       {action}
     </div>
   );
@@ -137,10 +141,48 @@ export function Stat({ label, value, unit }: { label: string; value: ReactNode; 
   );
 }
 
+interface StatTileProps {
+  label: ReactNode;
+  value: ReactNode;
+  unit?: string;
+  /** Colour of the short line across the top of the tile. */
+  color?: string;
+  leading?: ReactNode;
+  /** Bigger numerals, for tiles that are the main figure on a screen. */
+  large?: boolean;
+}
+
+/** Small centred stat card with a coloured top line, as in the reference's "Active subs" row. */
+export function StatTile({ label, value, unit, color = DEFAULT_ACCENT, leading, large = false }: StatTileProps) {
+  return (
+    <div
+      className="tile-line surface-card relative min-w-0 overflow-hidden rounded-[20px] px-3 pt-4 pb-3.5 text-center"
+      style={{ "--tile-line": color } as CSSProperties}
+    >
+      <p
+        className={`flex items-center justify-center gap-1.5 text-[11px] leading-tight text-fg-2 sm:text-xs ${
+          large ? "min-h-[2lh]" : ""
+        }`}
+      >
+        {leading}
+        <span className="min-w-0">{label}</span>
+      </p>
+      <p
+        className={`mt-1.5 truncate font-semibold tabular-nums ${
+          large ? "text-[clamp(1.75rem,1.4rem+1.6vw,2.4rem)] leading-none" : "text-[clamp(1.05rem,0.95rem+0.6vw,1.35rem)]"
+        }`}
+      >
+        {value}
+        {unit ? <span className="ml-1 text-xs font-normal text-fg-2">{unit}</span> : null}
+      </p>
+    </div>
+  );
+}
+
 export function EmptyState({ icon, title, hint }: { icon: IconName; title: string; hint?: string }) {
   return (
     <div className="flex flex-col items-center gap-2 py-8 text-center">
-      <span className="grid h-12 w-12 place-items-center rounded-full bg-surface-2 text-fg-2">
+      <span className="surface-raised grid h-12 w-12 place-items-center rounded-full text-fg-2">
         <Icon name={icon} size={22} />
       </span>
       <p className="font-medium">{title}</p>
@@ -205,16 +247,22 @@ interface SegmentedProps<T extends string> {
   accent?: string;
 }
 
+/** Pressed "well" track with a raised thumb, like the reference's Your subscriptions / Upcoming bills tabs. */
 export function Segmented<T extends string>({
   label,
   options,
   value,
   onChange,
-  accent = "var(--accent)",
+  accent = DEFAULT_ACCENT,
 }: SegmentedProps<T>) {
+  const tinted = accent !== DEFAULT_ACCENT;
   const activeText = accent.startsWith("#") ? readableOn(accent) : "#FFFFFF";
   return (
-    <div role="radiogroup" aria-label={label} className="flex flex-wrap gap-2">
+    <div
+      role="radiogroup"
+      aria-label={label}
+      className="surface-well flex w-fit max-w-full flex-wrap gap-1 rounded-[22px] p-1"
+    >
       {options.map((option) => {
         const active = option.value === value;
         return (
@@ -224,10 +272,14 @@ export function Segmented<T extends string>({
             role="radio"
             aria-checked={active}
             onClick={() => onChange(option.value)}
-            className={`inline-flex h-10 items-center gap-1.5 rounded-full border px-4 text-sm transition-colors ${
-              active ? "border-transparent" : "border-line text-fg-2 hover:text-fg"
+            className={`inline-flex h-9 items-center gap-1.5 rounded-full px-4 text-sm transition-colors ${
+              active ? (tinted ? "font-medium" : "surface-raised font-medium text-fg") : "text-fg-2 hover:text-fg"
             }`}
-            style={active ? { background: accent, color: activeText } : undefined}
+            style={
+              active && tinted
+                ? { background: accent, color: activeText, boxShadow: `0 6px 16px -8px ${accent}` }
+                : undefined
+            }
           >
             {option.icon ? <Icon name={option.icon} size={16} /> : null}
             {option.label}
@@ -253,14 +305,14 @@ export function Toggle({
   onChange,
   label,
   description,
-  accent = "var(--accent)",
+  accent = DEFAULT_ACCENT,
   disabled = false,
   icon,
 }: ToggleProps) {
   return (
     <div className={`flex items-center gap-3 py-2 ${disabled ? "opacity-45" : ""}`}>
       {icon ? (
-        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-surface-2 text-fg-2">
+        <span className="surface-raised grid h-9 w-9 shrink-0 place-items-center rounded-full text-fg-2">
           <Icon name={icon} size={18} />
         </span>
       ) : null}
@@ -275,8 +327,8 @@ export function Toggle({
         aria-label={label}
         disabled={disabled}
         onClick={() => onChange(!checked)}
-        className="relative h-7 w-12 shrink-0 rounded-full transition-colors disabled:cursor-not-allowed"
-        style={{ background: checked ? accent : "var(--line)" }}
+        className="surface-well relative h-7 w-12 shrink-0 rounded-full transition-colors disabled:cursor-not-allowed"
+        style={checked ? { background: accent, boxShadow: `0 0 14px -4px ${accent}` } : undefined}
       >
         <motion.span
           className="absolute top-1 left-1 h-5 w-5 rounded-full bg-white shadow"
@@ -302,8 +354,9 @@ export function PrimaryButton({
   disabled = false,
   type = "button",
   className = "",
-  color = "var(--accent)",
+  color = DEFAULT_ACCENT,
 }: ButtonProps & { color?: string }) {
+  const tinted = color !== DEFAULT_ACCENT;
   const textColor = color.startsWith("#") ? readableOn(color) : "#FFFFFF";
   return (
     <motion.button
@@ -311,8 +364,10 @@ export function PrimaryButton({
       whileTap={disabled ? undefined : { scale: 0.97 }}
       onClick={onClick}
       disabled={disabled}
-      style={{ background: color, color: textColor }}
-      className={`h-12 flex-1 rounded-full px-6 text-sm font-semibold transition-[filter,opacity] hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40 ${className}`}
+      style={tinted ? { background: color, color: textColor, boxShadow: `0 10px 24px -10px ${color}` } : undefined}
+      className={`h-12 flex-1 rounded-full px-6 text-sm font-semibold transition-[filter,opacity] hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40 ${
+        tinted ? "" : "accent-fill"
+      } ${className}`}
     >
       {children}
     </motion.button>
@@ -324,7 +379,7 @@ export function GhostButton({ children, onClick, type = "button", className = ""
     <button
       type={type}
       onClick={onClick}
-      className={`h-12 flex-1 rounded-full border border-line px-6 text-sm text-fg transition-colors hover:bg-surface-2 ${className}`}
+      className={`surface-card h-12 flex-1 rounded-full px-6 text-sm text-fg transition-[filter] hover:brightness-110 ${className}`}
     >
       {children}
     </button>

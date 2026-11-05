@@ -79,15 +79,15 @@ export function Sheet({ open, title, onClose, children }: SheetProps) {
             animate={{ y: 0 }}
             exit={{ y: "100%" }}
             transition={{ type: "spring", stiffness: 380, damping: 38 }}
-            className="relative flex max-h-[92dvh] w-full flex-col rounded-t-[30px] bg-bg pb-[max(16px,env(safe-area-inset-bottom))] shadow-[0_-20px_60px_-20px_rgba(0,0,0,0.7)] md:max-w-[34rem] md:rounded-[30px]"
+            className="surface-card relative flex max-h-[92dvh] w-full flex-col rounded-t-[32px] pb-[max(16px,env(safe-area-inset-bottom))] shadow-[0_-20px_60px_-20px_rgba(0,0,0,0.7)] md:max-w-[34rem] md:rounded-[32px]"
           >
             <div
               className="cursor-grab touch-none px-5 pt-3 active:cursor-grabbing"
               onPointerDown={(event) => dragControls.start(event)}
             >
-              <div className="mx-auto h-1.5 w-10 rounded-full bg-line md:hidden" />
+              <div className="mx-auto h-1.5 w-10 rounded-full bg-fg/20 md:hidden" />
               <div className="flex items-center justify-between gap-3 pt-3 pb-2">
-                <h2 className="truncate text-lg font-medium">{title}</h2>
+                <h2 className="truncate text-lg font-semibold tracking-tight">{title}</h2>
                 <CircleButton icon="close" label="Close" size="sm" onClick={onClose} />
               </div>
             </div>

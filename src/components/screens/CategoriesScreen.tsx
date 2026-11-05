@@ -11,8 +11,10 @@ import {
   Card,
   ChipButton,
   EmptyState,
+  STATUS_HEX,
   STATUS_LABEL,
   SectionTitle,
+  StatTile,
   StatusSquare,
   readableOn,
 } from "@/components/ui/primitives";
@@ -55,7 +57,7 @@ function CategoryCarousel({ categories, index, onIndex }: CarouselProps) {
         if (info.offset.x < -SWIPE_DISTANCE) go(1);
         else if (info.offset.x > SWIPE_DISTANCE) go(-1);
       }}
-      className="flex h-[clamp(124px,26vw,156px)] cursor-grab touch-pan-y items-center justify-center gap-[clamp(8px,2.5vw,22px)] rounded-[28px] select-none active:cursor-grabbing"
+      className="surface-well flex h-[clamp(140px,29vw,176px)] cursor-grab touch-pan-y items-center justify-center gap-[clamp(8px,2.5vw,22px)] rounded-[32px] select-none active:cursor-grabbing"
     >
       {SLOT_OFFSETS.map((offset) => {
         const category = categories[(((index + offset) % count) + count) % count];
@@ -71,11 +73,11 @@ function CategoryCarousel({ categories, index, onIndex }: CarouselProps) {
             aria-label={category.name}
             onClick={() => go(offset)}
             transition={{ type: "spring", stiffness: 320, damping: 30 }}
-            className="grid shrink-0 place-items-center rounded-full ring-1 ring-line"
+            className={`grid shrink-0 place-items-center rounded-full ${isCenter ? "" : "surface-raised"}`}
             style={{
               width: SLOT_SIZE[distance],
               height: SLOT_SIZE[distance],
-              background: isCenter ? category.color : "var(--surface)",
+              background: isCenter ? category.color : undefined,
               color: isCenter ? readableOn(category.color) : category.color,
               opacity: distance === 2 ? 0.55 : 1,
               boxShadow: isCenter ? `0 18px 44px -14px ${category.color}` : "none",
@@ -94,10 +96,11 @@ interface CategoriesScreenProps {
   index: number;
   onIndex: (index: number) => void;
   onStatus: (task: Task) => void;
+  onEdit: (task: Task) => void;
   onRepeat: (task: Task) => void;
 }
 
-export function CategoriesScreen({ now, index, onIndex, onStatus, onRepeat }: CategoriesScreenProps) {
+export function CategoriesScreen({ now, index, onIndex, onStatus, onEdit, onRepeat }: CategoriesScreenProps) {
   const { state } = useDemo();
   const [historyLimit, setHistoryLimit] = useState(HISTORY_PAGE);
   const categories = [...state.categories].sort((a, b) => a.order - b.order);
@@ -135,7 +138,7 @@ export function CategoriesScreen({ now, index, onIndex, onStatus, onRepeat }: Ca
           className="space-y-[clamp(20px,3vw,32px)]"
         >
           <div className="text-center">
-            <p className="text-[clamp(1.5rem,1.2rem+1.2vw,2.1rem)] font-light">{category.name}</p>
+            <p className="text-[clamp(1.5rem,1.2rem+1.2vw,2.1rem)] font-semibold tracking-tight">{category.name}</p>
             <p className="text-sm text-fg-2">
               {view.upcoming.length} upcoming · {view.history.length} in history
             </p>
@@ -143,25 +146,26 @@ export function CategoriesScreen({ now, index, onIndex, onStatus, onRepeat }: Ca
 
           <section className="grid grid-cols-3 gap-[clamp(8px,2vw,16px)]">
             {stats.map(([status, value]) => (
-              <div key={status} className="rounded-3xl bg-surface p-[clamp(12px,3vw,20px)]">
-                <div className="flex items-center gap-2 text-xs text-fg-2">
-                  <StatusSquare status={status} size={14} />
-                  <span className="truncate">{STATUS_LABEL[status]}</span>
-                </div>
-                <p className="text-display-sm mt-2">
-                  <CountUp value={value} format={String} />
-                </p>
-              </div>
+              <StatTile
+                key={status}
+                large
+                color={STATUS_HEX[status]}
+                leading={<StatusSquare status={status} size={14} />}
+                label={STATUS_LABEL[status]}
+                value={<CountUp value={value} format={String} />}
+              />
             ))}
           </section>
 
           <div className="grid grid-cols-1 gap-[clamp(16px,2.4vw,28px)] lg:grid-cols-2">
-            <Card>
+            <section>
               <SectionTitle>Upcoming</SectionTitle>
               {view.upcoming.length === 0 ? (
-                <EmptyState icon="calendar" title="Nothing scheduled" hint="New tasks are added from Home." />
+                <Card>
+                  <EmptyState icon="calendar" title="Nothing scheduled" hint="New tasks are added from Home." />
+                </Card>
               ) : (
-                <ul>
+                <ul className="space-y-2">
                   {view.upcoming.map((task) => (
                     <StatusRow
                       key={task.id}
@@ -169,17 +173,20 @@ export function CategoriesScreen({ now, index, onIndex, onStatus, onRepeat }: Ca
                       category={category}
                       meta={when(task)}
                       onStatus={() => onStatus(task)}
+                      onEdit={() => onEdit(task)}
                     />
                   ))}
                 </ul>
               )}
-            </Card>
-            <Card>
+            </section>
+            <section>
               <SectionTitle>History</SectionTitle>
               {history.length === 0 ? (
-                <EmptyState icon="clock" title="No history yet" />
+                <Card>
+                  <EmptyState icon="clock" title="No history yet" />
+                </Card>
               ) : (
-                <ul>
+                <ul className="space-y-2">
                   {history.map((task) => (
                     <StatusRow
                       key={task.id}
@@ -187,6 +194,7 @@ export function CategoriesScreen({ now, index, onIndex, onStatus, onRepeat }: Ca
                       category={category}
                       meta={when(task)}
                       onStatus={() => onStatus(task)}
+                      onEdit={() => onEdit(task)}
                       onRepeat={() => onRepeat(task)}
                     />
                   ))}
@@ -197,7 +205,7 @@ export function CategoriesScreen({ now, index, onIndex, onStatus, onRepeat }: Ca
                   <ChipButton onClick={() => setHistoryLimit((limit) => limit + HISTORY_PAGE)}>Show more</ChipButton>
                 </div>
               ) : null}
-            </Card>
+            </section>
           </div>
 
           <Card>

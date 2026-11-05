@@ -8,7 +8,7 @@ import { Icon } from "@/components/icons/Icon";
 const PIN_LENGTH = 6;
 const DIGITS = ["1", "2", "3", "4", "5", "6", "7", "8", "9"] as const;
 const KEY_CLASS =
-  "mx-auto grid aspect-square w-[clamp(60px,18vw,76px)] place-items-center rounded-full bg-surface text-[clamp(1.4rem,1.2rem+1vw,1.75rem)] font-light transition-colors hover:bg-surface-2 disabled:opacity-40";
+  "surface-raised mx-auto grid aspect-square w-[clamp(60px,18vw,76px)] place-items-center rounded-full text-[clamp(1.4rem,1.2rem+1vw,1.75rem)] font-medium transition-[filter] hover:brightness-110 disabled:opacity-40";
 
 type Step = "create" | "confirm" | "unlock";
 
@@ -45,7 +45,7 @@ export function Keypad({ onKey, allowDecimal = false, disabled = false, corner }
       {DIGITS.map((digit) => key(digit, digit))}
       {allowDecimal ? key(".", ".", "Decimal point") : <div className="grid place-items-center">{corner}</div>}
       {key("0", "0")}
-      {key("back", <Icon name="backspace" size={24} />, "Delete", "bg-transparent hover:bg-surface")}
+      {key("back", <Icon name="backspace" size={24} />, "Delete", "border-transparent bg-transparent shadow-none")}
     </div>
   );
 }
@@ -121,7 +121,7 @@ export function PinScreen() {
 
   return (
     <section className="mx-auto flex max-w-md flex-col items-center gap-[clamp(18px,3.2vh,30px)] py-[clamp(8px,3vh,32px)] text-center">
-      <span className="grid h-16 w-16 place-items-center rounded-full bg-accent text-white shadow-[0_12px_32px_-8px_rgba(216,48,54,0.7)]">
+      <span className="accent-fill grid h-16 w-16 place-items-center rounded-full">
         <Icon name="lock" size={28} />
       </span>
       <div className="space-y-2">
@@ -165,7 +165,7 @@ export function PinScreen() {
         }
       />
       {showForgot ? (
-        <div className="rounded-3xl bg-surface p-4 text-left text-sm text-fg-2">
+        <div className="surface-card rounded-3xl p-4 text-left text-sm text-fg-2">
           In the full app you confirm your account password to set a new PIN. In this demo you can reset it
           directly.
           <button
