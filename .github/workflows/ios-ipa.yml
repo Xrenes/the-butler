@@ -1,0 +1,57 @@
+# Builds an unsigned iPhone app (.ipa) of the Expo app on a GitHub Mac, for installing with
+# Sideloadly on Windows (Sideloadly signs it with your own Apple ID). Start it from the
+# Actions tab: "iOS unsigned IPA" -> "Run workflow". Download TheButler-ipa from the run.
+name: iOS unsigned IPA
+
+on:
+  workflow_dispatch:
+
+jobs:
+  ipa:
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # The phone app shares the domain rules in ../src/lib/domain, which use the web app's packages.
+      - name: Install shared packages
+        run: npm ci --no-audit --no-fund
+
+      - name: Install phone app packages
+        working-directory: mobile
+        run: npm ci --no-audit --no-fund
+
+      - name: Generate the iOS project
+        working-directory: mobile
+        run: npx expo prebuild --platform ios --clean --no-install
+
+      - name: Install CocoaPods
+        working-directory: mobile/ios
+        run: pod install
+
+      - name: Build without code signing
+        working-directory: mobile
+        run: |
+          WORKSPACE=$(ls -d ios/*.xcworkspace | head -1)
+          SCHEME=$(basename "$WORKSPACE" .xcworkspace)
+          xcodebuild -workspace "$WORKSPACE" -scheme "$SCHEME" -configuration Release \
+            -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build
+
+      - name: Package the .ipa
+        working-directory: mobile
+        run: |
+          APP=$(ls -d build/Build/Products/Release-iphoneos/*.app | head -1)
+          mkdir -p Payload
+          cp -R "$APP" Payload/
+          zip -qry TheButler.ipa Payload
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TheButler-ipa
+          path: mobile/TheButler.ipa
+          retention-days: 14
