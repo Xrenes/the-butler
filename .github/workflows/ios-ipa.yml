@@ -8,10 +8,16 @@ on:
 
 jobs:
   ipa:
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
+
+      # React Native's Swift packages need Swift 6.2, which ships with Xcode 26.
+      - name: Use the newest Xcode
+        run: |
+          sudo xcode-select -s "$(ls -d /Applications/Xcode_26*.app | sort -V | tail -1)"
+          xcodebuild -version
 
       - uses: actions/setup-node@v4
         with:

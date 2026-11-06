@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="The Butler logo">
+<rect width="1024" height="1024" rx="220" fill="#101727"/>
+<g stroke="#ffffff" stroke-linecap="round" stroke-linejoin="round" fill="none">
+<path d="M 248 286 L 327 252 Q 375 194 511 194 Q 648 194 697 252 L 777 286 L 704 269 L 739 322 L 703 355 L 734 385 L 512 865 L 290 385 L 321 355 L 285 322 L 320 269 Z" stroke-width="14"/>
+</g>
+<path d="M 408 236 L 511 278 L 616 236 L 574 735 L 512 825 L 450 735 Z" fill="#ffffff"/>
+<path d="M 408 236 L 511 278 L 616 236 L 569 208 L 511 255 L 454 208 Z" fill="#101727"/>
+<path d="M 431 262 L 509 300 L 509 359 L 431 390 Z" fill="#e00012"/>
+<path d="M 593 262 L 515 300 L 515 359 L 593 390 Z" fill="#e00012"/>
+<path d="M 500 294 Q 512 291 524 294 L 524 356 Q 512 362 500 356 Z" fill="#e00012"/>
+<g fill="#101727">
+<circle cx="512" cy="435" r="11"/><circle cx="512" cy="512" r="11"/><circle cx="512" cy="589" r="11"/><circle cx="512" cy="666" r="11"/>
+</g>
+</svg>

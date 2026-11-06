@@ -6,7 +6,7 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "automatic",
+    "userInterfaceStyle": "dark",
     "backgroundColor": "#111111",
     "ios": {
       "supportsTablet": false,
@@ -15,10 +15,9 @@
     "android": {
       "package": "app.thebutler.mobile",
       "adaptiveIcon": {
-        "backgroundColor": "#111111",
+        "backgroundColor": "#101727",
         "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
-        "monochromeImage": "./assets/android-icon-monochrome.png"
+        "backgroundImage": "./assets/android-icon-background.png"
       },
       "predictiveBackGestureEnabled": false
     },
@@ -33,6 +32,12 @@
       ],
       "expo-font",
       "expo-audio"
-    ]
+    ],
+    "splash": {
+      "backgroundColor": "#111111"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    }
   }
 }
