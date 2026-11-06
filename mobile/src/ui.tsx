@@ -1,11 +1,13 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { LinearGradient } from "expo-linear-gradient";
-import { type ReactNode, useEffect, useRef } from "react";
+import { type ReactNode, createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Animated,
   Keyboard,
   KeyboardAvoidingView,
   Modal,
+  PanResponder,
   type PressableProps,
   Platform,
   Pressable,
@@ -374,23 +376,32 @@ export function EmptyState({ icon, title, hint }: { icon: IconName; title: strin
 
 /* ---------- task bits ---------- */
 
+const STATUS_GLYPH: Record<Exclude<MarkedStatus, "H">, IconName> = { C: "checkmark-sharp", NC: "close-sharp" };
+
+/**
+ * Task status as an icon only: green tick (done), yellow circle (on hold), red cross (not done),
+ * and a faint grey ring for a task not marked yet.
+ */
 export function StatusSquare({ status, size = 22 }: { status: TaskStatus; size?: number }) {
   const t = useTheme();
-  const marked = status !== "pending";
+  const box = { width: size, height: size, alignItems: "center", justifyContent: "center" } as const;
+  if (status === "pending") {
+    return (
+      <View style={box}>
+        <View style={{ width: size * 0.82, height: size * 0.82, borderRadius: size, borderWidth: 1.5, borderColor: t.fg3 }} />
+      </View>
+    );
+  }
+  if (status === "H") {
+    return (
+      <View style={box}>
+        <View style={{ width: size * 0.66, height: size * 0.66, borderRadius: size, backgroundColor: STATUS_HEX.H }} />
+      </View>
+    );
+  }
   return (
-    <View
-      style={{
-        width: size,
-        height: size,
-        borderRadius: size * 0.28,
-        alignItems: "center",
-        justifyContent: "center",
-        backgroundColor: marked ? STATUS_HEX[status as MarkedStatus] : "transparent",
-        borderWidth: marked ? 0 : 1.5,
-        borderColor: t.fg3,
-      }}
-    >
-      {marked ? <Text style={{ color: "#FFFFFF", fontSize: size * 0.42, fontWeight: "700" }}>{status}</Text> : null}
+    <View style={box}>
+      <Ionicons name={STATUS_GLYPH[status]} size={Math.round(size * 1.15)} color={STATUS_HEX[status]} />
     </View>
   );
 }
@@ -414,7 +425,14 @@ export function CategoryBadge({ category, size = 40 }: { category: Category; siz
 
 /* ---------- sheet ---------- */
 
-/** Bottom sheet: dimmed backdrop, grab area, title with a close button, scrolling body. */
+const SHEET_CLOSE_DISTANCE = 110;
+const SHEET_CLOSE_VELOCITY = 0.9;
+const CLOSE_ICON = 34;
+
+/**
+ * Bottom sheet: dimmed backdrop, centred title with a hollow ✕, scrolling body.
+ * Pulling the top of the sheet down closes it, the same as the ✕.
+ */
 export function Sheet({
   open,
   title,
@@ -428,6 +446,37 @@ export function Sheet({
 }) {
   const t = useTheme();
   const insets = useSafeAreaInsets();
+  const [drag] = useState(() => new Animated.Value(0));
+  const closeRef = useRef(onClose);
+
+  useEffect(() => {
+    closeRef.current = onClose;
+  });
+
+  useEffect(() => {
+    if (open) drag.setValue(0);
+  }, [open, drag]);
+
+  // The handlers read closeRef only while a finger is moving, never during render.
+  const pull = useMemo(
+    () =>
+      // eslint-disable-next-line react-hooks/refs
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_, gesture) => gesture.dy > 6 && Math.abs(gesture.dy) > Math.abs(gesture.dx),
+        onPanResponderMove: (_, gesture) => drag.setValue(Math.max(0, gesture.dy)),
+        onPanResponderRelease: (_, gesture) => {
+          if (gesture.dy > SHEET_CLOSE_DISTANCE || gesture.vy > SHEET_CLOSE_VELOCITY) {
+            Keyboard.dismiss();
+            closeRef.current();
+            return;
+          }
+          Animated.spring(drag, { toValue: 0, useNativeDriver: true, bounciness: 4 }).start();
+        },
+        onPanResponderTerminate: () => Animated.spring(drag, { toValue: 0, useNativeDriver: true }).start(),
+      }),
+    [drag],
+  );
+
   return (
     <Modal visible={open} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent>
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
@@ -440,18 +489,38 @@ export function Sheet({
           }}
         />
         <View style={styles.sheetHost} pointerEvents="box-none">
-          <View
+          <Animated.View
             style={[
               styles.sheet,
-              { backgroundColor: t.canvas, borderColor: t.edge, paddingBottom: Math.max(insets.bottom, 16) },
+              {
+                backgroundColor: t.canvas,
+                borderColor: t.edge,
+                paddingBottom: Math.max(insets.bottom, 16),
+                transform: [{ translateY: drag }],
+              },
             ]}
           >
-            <View style={[styles.grab, { backgroundColor: t.line }]} />
-            <View style={styles.sheetHeader}>
-              <Text style={{ color: t.fg, fontSize: 20, fontWeight: "600", flex: 1 }} numberOfLines={1}>
-                {title}
-              </Text>
-              <CircleButton icon="close" label="Close" size={36} onPress={onClose} />
+            <View {...pull.panHandlers} style={{ paddingTop: 2 }}>
+              <View style={[styles.grab, { backgroundColor: t.line }]} />
+              <View style={styles.sheetHeader}>
+                <View style={{ width: CLOSE_ICON }} />
+                <Text style={{ color: t.fg, fontSize: 19, fontWeight: "600", flex: 1, textAlign: "center" }} numberOfLines={1}>
+                  {title}
+                </Text>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Close"
+                  hitSlop={10}
+                  onPress={() => {
+                    tap();
+                    Keyboard.dismiss();
+                    onClose();
+                  }}
+                  style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}
+                >
+                  <Ionicons name="close-circle-outline" size={CLOSE_ICON} color={t.fg2} />
+                </Pressable>
+              </View>
             </View>
             <ScrollView
               keyboardShouldPersistTaps="handled"
@@ -460,19 +529,31 @@ export function Sheet({
             >
               {children}
             </ScrollView>
-          </View>
+          </Animated.View>
         </View>
       </KeyboardAvoidingView>
     </Modal>
   );
 }
 
+/* ---------- gestures ---------- */
+
+/** Lets a gesture inside a screen (the finance card stack) pause the page's own scrolling. */
+export const ScrollLockContext = createContext<(locked: boolean) => void>(() => undefined);
+
+export function useScrollLock(): (locked: boolean) => void {
+  return useContext(ScrollLockContext);
+}
+
 /* ---------- charts ---------- */
 
-const GAUGE = 240;
-const GAUGE_R = 92;
-const GAUGE_START = 135;
-const GAUGE_SWEEP = 270;
+const GAUGE = 260;
+const GAUGE_R = 108;
+/** Semicircle: from the left end, over the top, to the right end. */
+const GAUGE_START = 180;
+const GAUGE_SWEEP = 180;
+const GAUGE_STROKE = 14;
+const GAUGE_HEIGHT = GAUGE / 2 + GAUGE_STROKE;
 
 function polar(deg: number, radius: number) {
   const rad = (deg * Math.PI) / 180;
@@ -485,28 +566,28 @@ function arc(radius: number): string {
   return `M${a.x} ${a.y} A${radius} ${radius} 0 1 1 ${b.x} ${b.y}`;
 }
 
-/** 270° progress ring with the value in the middle. */
+/** Semicircle progress bar with the value sitting inside the arch. */
 export function ArcGauge({ percent, children }: { percent: number; children: ReactNode }) {
   const t = useTheme();
   const length = (GAUGE_R * GAUGE_SWEEP * Math.PI) / 180;
   const filled = Math.max(0, Math.min(100, percent)) / 100;
   return (
-    <View style={{ width: GAUGE, height: GAUGE, alignSelf: "center", alignItems: "center", justifyContent: "center" }}>
-      <Svg width={GAUGE} height={GAUGE} style={StyleSheet.absoluteFill}>
-        <Path d={arc(GAUGE_R)} stroke={t.dotOff} strokeWidth={14} strokeLinecap="round" fill="none" />
+    <View style={{ width: GAUGE, height: GAUGE_HEIGHT, alignSelf: "center", alignItems: "center", justifyContent: "flex-end" }}>
+      <Svg width={GAUGE} height={GAUGE_HEIGHT} style={StyleSheet.absoluteFill}>
+        <Path d={arc(GAUGE_R)} stroke={t.dotOff} strokeWidth={GAUGE_STROKE} strokeLinecap="round" fill="none" />
         <Path d={arc(GAUGE_R - 24)} stroke={t.dotOff} strokeWidth={2} strokeDasharray="1 7" strokeLinecap="round" fill="none" />
         {filled > 0 ? (
           <Path
             d={arc(GAUGE_R)}
             stroke={t.accent}
-            strokeWidth={14}
+            strokeWidth={GAUGE_STROKE}
             strokeLinecap="round"
             fill="none"
             strokeDasharray={`${length * filled} ${length}`}
           />
         ) : null}
       </Svg>
-      <View style={{ alignItems: "center" }}>{children}</View>
+      <View style={{ alignItems: "center", marginBottom: 2 }}>{children}</View>
     </View>
   );
 }

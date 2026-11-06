@@ -7,6 +7,18 @@ export interface TaskDraft {
   categoryId: string;
   dueAt: Date;
   reminder: Reminder;
+  durationMinutes?: number;
+}
+
+/** Used wherever a task has no duration of its own (older tasks, web demo). */
+export const DEFAULT_DURATION_MINUTES = 30;
+
+export function durationOf(task: Task): number {
+  return task.durationMinutes ?? DEFAULT_DURATION_MINUTES;
+}
+
+function durationField(draft: TaskDraft): { durationMinutes?: number } {
+  return draft.durationMinutes ? { durationMinutes: draft.durationMinutes } : {};
 }
 
 export interface DayGroup {
@@ -58,6 +70,7 @@ export function createTask(
     status: "pending",
     statusChangedAt: null,
     reminder: { ...draft.reminder },
+    ...durationField(draft),
     sourceTaskId,
     createdAt: stamp,
     updatedAt: stamp,
@@ -72,6 +85,7 @@ export function updateTask(task: Task, draft: TaskDraft, now: Date): Task {
     categoryId: draft.categoryId,
     dueAt: draft.dueAt.toISOString(),
     reminder: { ...draft.reminder },
+    ...durationField(draft),
     updatedAt: now.toISOString(),
   };
 }
@@ -88,6 +102,7 @@ export function draftFromTask(task: Task): TaskDraft {
     categoryId: task.categoryId,
     dueAt: new Date(task.dueAt),
     reminder: { ...task.reminder },
+    ...(task.durationMinutes ? { durationMinutes: task.durationMinutes } : {}),
   };
 }
 

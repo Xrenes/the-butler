@@ -66,6 +66,8 @@ export const ReminderSchema = z.object({
   enabled: z.boolean(),
   leadMinutes: z.number().int().min(0).max(1440),
   includeTitle: z.boolean(),
+  /** Also ring when the task's duration is over. Optional: older tasks have no end alarm. */
+  atEnd: z.boolean().optional(),
 });
 
 export const TaskSchema = z.object({
@@ -78,6 +80,8 @@ export const TaskSchema = z.object({
   status: z.enum(TASK_STATUSES),
   statusChangedAt: isoDate.nullable(),
   reminder: ReminderSchema,
+  /** How long the task takes. Optional: tasks saved before this existed have none. */
+  durationMinutes: z.number().int().min(5).max(720).optional(),
   sourceTaskId: recordId.nullable(),
   createdAt: isoDate,
   updatedAt: isoDate,

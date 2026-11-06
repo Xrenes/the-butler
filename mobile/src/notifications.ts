@@ -1,7 +1,7 @@
 import * as Notifications from "expo-notifications";
 import { AndroidImportance, AndroidNotificationVisibility } from "expo-notifications";
 import { Platform } from "react-native";
-import { describeLead, reminderFireAt } from "@domain/alarms";
+import { describeLead, endsAt, reminderFireAt } from "@domain/alarms";
 import { TIME_ZONE } from "./store";
 import { formatTime } from "@domain/dates";
 import type { Category, Task } from "@domain/types";
@@ -56,11 +56,12 @@ export async function permissionState(): Promise<PermissionState> {
   return current.canAskAgain ? "undetermined" : "denied";
 }
 
-function content(task: Task, category: Category | undefined, nag: number) {
+function content(task: Task, category: Category | undefined, nag: number, end: boolean) {
   const due = formatTime(new Date(task.dueAt), TIME_ZONE);
   const where = category?.name ?? "Task";
+  const title = end ? `⏰ Time's up · ${where}` : nag === 0 ? `⏰ ${where}` : `⏰ Still pending · ${where}`;
   return {
-    title: nag === 0 ? `⏰ ${where}` : `⏰ Still pending · ${where}`,
+    title,
     body: `${task.title}\nDue ${due} · ${describeLead(task.reminder.leadMinutes)}`,
     sound: "default" as const,
     interruptionLevel: "timeSensitive" as const,
@@ -85,14 +86,17 @@ export async function syncAlarms(
 
   const categoryById = new Map(categories.map((category) => [category.id, category]));
   const upcoming = tasks
-    .filter((task) => task.status === "pending" && task.reminder.enabled)
-    .map((task) => ({ task, fireAt: reminderFireAt(task) }))
+    .filter((task) => task.status === "pending")
+    .flatMap((task) => [
+      ...(task.reminder.enabled ? [{ task, fireAt: reminderFireAt(task), end: false }] : []),
+      ...(task.reminder.atEnd ? [{ task, fireAt: endsAt(task), end: true }] : []),
+    ])
     .filter(({ fireAt }) => fireAt.getTime() > now.getTime())
     .sort((a, b) => a.fireAt.getTime() - b.fireAt.getTime())
     .slice(0, MAX_TASKS);
 
   let scheduled = 0;
-  for (const { task, fireAt } of upcoming) {
+  for (const { task, fireAt, end } of upcoming) {
     const category = categoryById.get(task.categoryId);
     const times = [0, ...FOLLOW_UPS_MINUTES].map((minutes, nag) => ({
       nag,
@@ -100,7 +104,7 @@ export async function syncAlarms(
     }));
     for (const { nag, at } of times) {
       await Notifications.scheduleNotificationAsync({
-        content: content(task, category, nag),
+        content: content(task, category, nag, end),
         trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: at, channelId: CHANNEL_ID },
       });
       scheduled += 1;

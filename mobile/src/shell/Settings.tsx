@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Alert, Linking, Text, TextInput, View } from "react-native";
+import { Alert, Linking, Pressable, Text, TextInput, View } from "react-native";
 import { describeLead } from "@domain/alarms";
 import { dayKeyOf, formatDayLabel, formatTime } from "@domain/dates";
 import { sortByDue } from "@domain/tasks";
@@ -7,15 +7,14 @@ import { type PermissionState, permissionState, requestPermission, sendTestAlarm
 import { clearPin } from "../pin";
 import { TIME_ZONE, useStore } from "../store";
 import { useTheme } from "../theme";
-import { CategoryBadge, Chip, EmptyState, GhostButton, Segmented, Sheet, Toggle, type IconName } from "../ui";
+import { CategoryBadge, Chip, EmptyState, GhostButton, Sheet, Toggle, type IconName } from "../ui";
 import { Ionicons } from "@expo/vector-icons";
 import type { ReactNode } from "react";
 
+/** Fixed alarm colours to choose from instead of each task's category colour. */
+const ALARM_COLORS = ["#D83036", "#F97316", "#EAB308", "#16A34A", "#0EA5E9", "#8B5CF6", "#EC4899"] as const;
+
 const REMINDER_WINDOW_MS = 48 * 60 * 60 * 1000;
-const THEMES = [
-  { value: "dark", label: "Dark" },
-  { value: "light", label: "Light" },
-] as const;
 
 function Group({ title, children }: { title: string; children: ReactNode }) {
   const t = useTheme();
@@ -101,12 +100,6 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
           />
         </Group>
 
-        <Group title="Appearance">
-          <View style={{ paddingVertical: 8 }}>
-            <Segmented options={THEMES} value={settings.theme} onChange={(theme) => dispatch({ type: "settings/update", patch: { theme } })} />
-          </View>
-        </Group>
-
         <Group title="Alarms">
           <Toggle
             icon="alarm-outline"
@@ -122,6 +115,51 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
             value={settings.inAppAlarm}
             onChange={(inAppAlarm) => dispatch({ type: "settings/update", patch: { inAppAlarm } })}
           />
+          <Toggle
+            icon="volume-high-outline"
+            label="Loud alarm sound"
+            description="Loops until you answer, even on silent."
+            value={settings.alarmSound}
+            onChange={(alarmSound) => dispatch({ type: "settings/update", patch: { alarmSound } })}
+          />
+          <Toggle
+            icon="flash-outline"
+            label="Flashing colour"
+            value={settings.alarmFlash}
+            onChange={(alarmFlash) => dispatch({ type: "settings/update", patch: { alarmFlash } })}
+          />
+          <Toggle
+            icon="pulse-outline"
+            label="Vibrate"
+            value={settings.alarmVibrate}
+            onChange={(alarmVibrate) => dispatch({ type: "settings/update", patch: { alarmVibrate } })}
+          />
+          <View style={{ flexDirection: "row", marginTop: 6 }}>
+            <GhostButton
+              onPress={() => {
+                onClose();
+                dispatch({ type: "alarm/preview", on: true });
+              }}
+            >
+              Preview alarm
+            </GhostButton>
+          </View>
+          <Text style={{ color: t.fg2, fontSize: 12, marginTop: 8, marginBottom: 8 }}>Alarm colour</Text>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+            <Chip active={settings.alarmColor === "category"} onPress={() => dispatch({ type: "settings/update", patch: { alarmColor: "category" } })}>
+              Category colour
+            </Chip>
+            {ALARM_COLORS.map((color) => (
+              <Pressable
+                key={color}
+                accessibilityRole="radio"
+                accessibilityLabel={`Alarm colour ${color}`}
+                accessibilityState={{ checked: settings.alarmColor === color }}
+                onPress={() => dispatch({ type: "settings/update", patch: { alarmColor: color } })}
+                style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: color, borderWidth: settings.alarmColor === color ? 3 : 1, borderColor: settings.alarmColor === color ? t.fg : t.edge }}
+              />
+            ))}
+          </View>
           {settings.phoneAlarm && permission === "denied" ? (
             <Note>{"Notifications are blocked for this app. Turn them on in your phone's settings, or no alarm can ring."}</Note>
           ) : null}

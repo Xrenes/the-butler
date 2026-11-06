@@ -6,22 +6,23 @@ import {
   dayKeyOf,
   dayOfMonth,
   formatLongDate,
-  formatTime,
   formatWeekRange,
   startOfWeek,
   weekDays,
   weekdayShort,
+  zonedParts,
 } from "@domain/dates";
 import { motivationLine, progressOf } from "@domain/progress";
 import { tasksOnDay } from "@domain/tasks";
 import type { Category, Task } from "@domain/types";
-import { StatusRow } from "../rows";
 import { TIME_ZONE, useStore } from "../store";
 import { useTheme } from "../theme";
-import { Card, Chip, CircleButton, EmptyState, Muted, SectionTitle, TickProgress, Title, tap } from "../ui";
+import { Card, Chip, CircleButton, Muted, TickProgress, Title, tap } from "../ui";
+import { DaySchedule } from "./DaySchedule";
 
 const MAX_DOTS = 3;
 const DAYS_PER_WEEK = 7;
+const MINUTES_PER_HOUR = 60;
 
 function categoryColors(tasks: readonly Task[], categoryById: ReadonlyMap<string, Category>): string[] {
   const colors = tasks
@@ -30,7 +31,7 @@ function categoryColors(tasks: readonly Task[], categoryById: ReadonlyMap<string
   return [...new Set(colors)].slice(0, MAX_DOTS);
 }
 
-/** Weekly only: Mon–Sun strip, the selected day's progress and its tasks. */
+/** Weekly strip, then the chosen day's progress, then that day laid out hour by hour. */
 export function CalendarScreen({ now, onStatus, onEdit }: { now: Date; onStatus: (task: Task) => void; onEdit: (task: Task) => void }) {
   const t = useTheme();
   const { state } = useStore();
@@ -41,9 +42,10 @@ export function CalendarScreen({ now, onStatus, onEdit }: { now: Date; onStatus:
   const progress = progressOf(dayTasks);
   const categoryById = new Map(state.categories.map((category) => [category.id, category]));
   const shiftWeek = (weeks: number) => setSelectedDay((day) => addDays(day, weeks * DAYS_PER_WEEK));
+  const clock = zonedParts(now, TIME_ZONE);
 
   return (
-    <View style={{ gap: 22 }}>
+    <View style={{ gap: 20 }}>
       <View style={{ flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between", gap: 12 }}>
         <View style={{ flex: 1 }}>
           <Muted>Week of</Muted>
@@ -120,30 +122,16 @@ export function CalendarScreen({ now, onStatus, onEdit }: { now: Date; onStatus:
         <Muted>{motivationLine(progress)}</Muted>
       </Card>
 
-      <View>
-        <SectionTitle>Tasks</SectionTitle>
-        {dayTasks.length === 0 ? (
-          <Card>
-            <EmptyState icon="calendar-outline" title="Nothing on this day" hint="Tap + to plan a task." />
-          </Card>
-        ) : (
-          <View style={{ gap: 8 }}>
-            {dayTasks.map((task) => {
-              const category = categoryById.get(task.categoryId);
-              return category ? (
-                <StatusRow
-                  key={task.id}
-                  task={task}
-                  category={category}
-                  meta={formatTime(new Date(task.dueAt), TIME_ZONE)}
-                  onStatus={() => onStatus(task)}
-                  onEdit={() => onEdit(task)}
-                />
-              ) : null;
-            })}
-          </View>
-        )}
-      </View>
+      <Card style={{ paddingTop: 18 }}>
+        {dayTasks.length === 0 ? <Muted style={{ marginBottom: 4 }}>Nothing on this day yet. Tap + to plan a task.</Muted> : null}
+        <DaySchedule
+          tasks={dayTasks}
+          categories={state.categories}
+          nowMinutes={selectedDay === today ? clock.hour * MINUTES_PER_HOUR + clock.minute : null}
+          onEdit={onEdit}
+          onStatus={onStatus}
+        />
+      </Card>
     </View>
   );
 }

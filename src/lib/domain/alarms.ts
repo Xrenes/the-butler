@@ -2,6 +2,7 @@
  * On-screen alarms: which reminders are due right now. Pure, so the timing rules can be tested.
  * Telegram delivery is separate and lives on the server.
  */
+import { durationOf } from "./tasks";
 import type { Task } from "./types";
 
 const MS_PER_MINUTE = 60_000;
@@ -46,6 +47,34 @@ export function dueAlarms(tasks: readonly Task[], now: Date, memory: AlarmMemory
       return nowMs <= new Date(task.dueAt).getTime() + ALARM_GRACE_MS;
     })
     .sort((a, b) => reminderFireAt(a).getTime() - reminderFireAt(b).getTime() || a.title.localeCompare(b.title));
+}
+
+/** When the task's duration is over. */
+export function endsAt(task: Task): Date {
+  return new Date(new Date(task.dueAt).getTime() + durationOf(task) * MS_PER_MINUTE);
+}
+
+/** Separate from the start alarm's key, and changes when the time or duration changes. */
+export function endAlarmKey(task: Task): string {
+  return `${task.id}|${task.dueAt}|end|${durationOf(task)}`;
+}
+
+/** Pending tasks with an end alarm whose end time has arrived, earliest first. */
+export function dueEndAlarms(tasks: readonly Task[], now: Date, memory: AlarmMemory): Task[] {
+  const nowMs = now.getTime();
+  return tasks
+    .filter((task) => {
+      if (task.status !== "pending" || !task.reminder.atEnd) return false;
+      const key = endAlarmKey(task);
+      if (memory.dismissed.has(key)) return false;
+      const snoozedUntil = memory.snoozedUntil.get(key);
+      if (snoozedUntil !== undefined) return snoozedUntil <= nowMs;
+      const endMs = endsAt(task).getTime();
+      if (endMs > nowMs) return false;
+      if (new Date(task.updatedAt).getTime() > endMs) return false;
+      return nowMs <= endMs + ALARM_GRACE_MS;
+    })
+    .sort((a, b) => endsAt(a).getTime() - endsAt(b).getTime() || a.title.localeCompare(b.title));
 }
 
 /** "Due in 10 min", "Due now" or "5 min overdue". */

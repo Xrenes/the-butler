@@ -31,7 +31,8 @@
           "faceIDPermission": "The Butler uses Face ID to confirm it's you before resetting your finance PIN."
         }
       ],
-      "expo-font"
+      "expo-font",
+      "expo-audio"
     ]
   }
 }

@@ -65,8 +65,8 @@ export function useTheme(): Palette {
   return useContext(ThemeContext);
 }
 
-/** Task status colours are fixed by the product spec. */
-export const STATUS_HEX = { C: "#087B43", NC: "#B91C1C", H: "#C66A0A" } as const;
+/** Task status colours: green tick (done), yellow circle (on hold), red cross (not done). */
+export const STATUS_HEX = { C: "#16A34A", NC: "#DC2626", H: "#EAB308" } as const;
 export const STATUS_LABEL = { C: "Completed", NC: "Not completed", H: "On hold" } as const;
 
 /** Black or white text, whichever reads better on the given colour. */

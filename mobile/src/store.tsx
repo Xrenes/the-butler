@@ -30,6 +30,12 @@ export interface Settings {
   /** Ring a loud phone notification at reminder time, even when the app is closed. */
   phoneAlarm: boolean;
   transfersEnabled: boolean;
+  /** Full-screen alarm style: loud looping sound, flashing colour, vibration. */
+  alarmSound: boolean;
+  alarmFlash: boolean;
+  alarmVibrate: boolean;
+  /** "category" uses each task's category colour; otherwise a fixed hex colour. */
+  alarmColor: string;
 }
 
 export interface FinanceLock {
@@ -50,12 +56,16 @@ export interface SavedState {
 /** Saved state plus this session's unlock flag, which is never saved: a restart always locks. */
 export interface AppState extends SavedState {
   financeUnlocked: boolean;
+  /** Settings → Preview alarm: shows a sample full-screen alarm. Never saved. */
+  alarmPreview: boolean;
 }
 
 export type Action =
   | { type: "load"; saved: SavedState }
   | { type: "task/save"; task: Task }
   | { type: "task/status"; id: string; status: MarkedStatus; now: Date }
+  | { type: "category/save"; category: Category }
+  | { type: "alarm/preview"; on: boolean }
   | { type: "txn/add"; txn: Txn }
   | { type: "resource/save"; resource: Resource }
   | { type: "settings/update"; patch: Partial<Settings> }
@@ -66,7 +76,21 @@ export type Action =
   | { type: "data/clear-tasks" }
   | { type: "data/clear-finance"; now: Date };
 
-export const newId = (): string => randomUUID();
+/**
+ * UUID v4. Browsers only offer randomUUID on secure pages (https or localhost), so the web preview
+ * opened by IP address falls back to getRandomValues, which works everywhere.
+ */
+export function newId(): string {
+  try {
+    return randomUUID();
+  } catch {
+    const bytes = globalThis.crypto.getRandomValues(new Uint8Array(16));
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  }
+}
 
 const DEFAULT_SETTINGS: Settings = {
   displayName: "",
@@ -74,6 +98,10 @@ const DEFAULT_SETTINGS: Settings = {
   inAppAlarm: true,
   phoneAlarm: true,
   transfersEnabled: true,
+  alarmSound: true,
+  alarmFlash: true,
+  alarmVibrate: true,
+  alarmColor: "#D83036",
 };
 const OPEN_LOCK: FinanceLock = { failures: 0, lockedUntil: null };
 
@@ -86,6 +114,7 @@ export function freshState(now: Date): AppState {
     settings: DEFAULT_SETTINGS,
     financeLock: OPEN_LOCK,
     financeUnlocked: false,
+    alarmPreview: false,
   };
 }
 
@@ -150,7 +179,7 @@ function afterFailedPin(lock: FinanceLock, now: number): FinanceLock {
 export function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
     case "load":
-      return { ...action.saved, financeUnlocked: false };
+      return { ...action.saved, financeUnlocked: false, alarmPreview: false };
     case "task/save":
       return { ...state, tasks: upsert(state.tasks, action.task) };
     case "task/status":
@@ -158,6 +187,10 @@ export function reducer(state: AppState, action: Action): AppState {
         ...state,
         tasks: state.tasks.map((task) => (task.id === action.id ? withStatus(task, action.status, action.now) : task)),
       };
+    case "alarm/preview":
+      return { ...state, alarmPreview: action.on };
+    case "category/save":
+      return { ...state, categories: upsert(state.categories, action.category) };
     case "txn/add":
       return { ...state, txns: [...state.txns, action.txn] };
     case "resource/save":
@@ -184,7 +217,7 @@ export function reducer(state: AppState, action: Action): AppState {
 }
 
 function toSaved(state: AppState): SavedState {
-  const { financeUnlocked: _session, ...saved } = state;
+  const { financeUnlocked: _session, alarmPreview: _preview, ...saved } = state;
   return saved;
 }
 

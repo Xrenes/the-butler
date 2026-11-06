@@ -50,6 +50,8 @@ interface StatusRowProps {
   task: Task;
   category: Category;
   meta: string;
+  /** Optional second line under `meta`, e.g. the time under the date. */
+  metaSub?: string;
   onStatus: () => void;
   /** Opens the same editor used to create a task, filled in with this one. */
   onEdit: () => void;
@@ -57,7 +59,7 @@ interface StatusRowProps {
 }
 
 /** Checklist row: status square, then time and title (which open the editor), then a category dot. */
-export function StatusRow({ task, category, meta, onStatus, onEdit, onRepeat }: StatusRowProps) {
+export function StatusRow({ task, category, meta, metaSub, onStatus, onEdit, onRepeat }: StatusRowProps) {
   const t = useTheme();
   const dimmed = task.status === "NC" || task.status === "H";
   return (
@@ -90,11 +92,18 @@ export function StatusRow({ task, category, meta, onStatus, onEdit, onRepeat }: 
           tap();
           onEdit();
         }}
-        style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 6, height: 52 }}
+        style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 6, minHeight: 52 }}
       >
-        <Text style={{ color: t.fg2, fontSize: 13, width: 66, fontVariant: ["tabular-nums"] }} numberOfLines={1}>
-          {meta}
-        </Text>
+        <View style={{ width: 78 }}>
+          <Text style={{ color: t.fg2, fontSize: 12, fontVariant: ["tabular-nums"] }} numberOfLines={1}>
+            {meta}
+          </Text>
+          {metaSub ? (
+            <Text style={{ color: t.fg3, fontSize: 11, fontVariant: ["tabular-nums"] }} numberOfLines={1}>
+              {metaSub}
+            </Text>
+          ) : null}
+        </View>
         <Text style={{ color: dimmed ? t.fg2 : t.fg, fontSize: 15, flex: 1 }} numberOfLines={1}>
           {task.title}
         </Text>

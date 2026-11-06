@@ -12,11 +12,11 @@ import { CalendarScreen } from "./src/screens/CalendarScreen";
 import { CategoriesScreen } from "./src/screens/CategoriesScreen";
 import { HomeScreen } from "./src/screens/HomeScreen";
 import { AlarmWatcher } from "./src/shell/AlarmAlert";
-import { RemindersSheet, SettingsSheet } from "./src/shell/Settings";
+import { SettingsSheet } from "./src/shell/Settings";
 import { StoreProvider, TIME_ZONE, useNow, useStore } from "./src/store";
 import { ThemeProvider, useTheme } from "./src/theme";
-import { CircleButton, type IconName, tap } from "./src/ui";
-import { zonedParts } from "@domain/dates";
+import { CircleButton, type IconName, ScrollLockContext, tap } from "./src/ui";
+import { dayKeyOf, formatLongDate } from "@domain/dates";
 
 type Tab = "home" | "categories" | "calendar" | "finance";
 const TAB_META: Record<Tab, { label: string; icon: IconName; active: IconName }> = {
@@ -25,14 +25,6 @@ const TAB_META: Record<Tab, { label: string; icon: IconName; active: IconName }>
   calendar: { label: "Calendar", icon: "calendar-outline", active: "calendar" },
   finance: { label: "Finance", icon: "wallet-outline", active: "wallet" },
 };
-const TAGLINE = "Small wins, every day.";
-
-function greeting(now: Date): string {
-  const hour = zonedParts(now, TIME_ZONE).hour;
-  if (hour < 12) return "Good morning";
-  return hour < 17 ? "Good afternoon" : "Good evening";
-}
-
 /** Keeps the phone's scheduled alarms in step with the tasks, whatever changed them. */
 function useAlarmSync() {
   const { state, ready } = useStore();
@@ -57,23 +49,21 @@ function useAlarmSync() {
   }, [ready, tasks, categories, settings.phoneAlarm, permission]);
 }
 
-function Header({ now, name, onBell, onSettings }: { now: Date; name: string; onBell: () => void; onSettings: () => void }) {
+const SETTINGS_BUTTON = 44;
+
+/** Day and date in the centre, settings on the right. */
+function Header({ now, onSettings }: { now: Date; onSettings: () => void }) {
   const t = useTheme();
   const insets = useSafeAreaInsets();
-  const hello = name.trim() ? `${greeting(now)}, ${name.trim()}` : greeting(now);
+  const [weekday, date] = formatLongDate(dayKeyOf(now, TIME_ZONE)).split(", ");
   return (
-    <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, paddingTop: insets.top + 10, paddingBottom: 14, paddingHorizontal: 20 }}>
-      <View style={{ flex: 1 }}>
-        <Text style={{ color: t.fg, fontSize: 19, fontWeight: "600", letterSpacing: -0.3 }}>The Butler</Text>
-        <Text style={{ color: t.fg2, fontSize: 13 }} numberOfLines={1}>
-          {hello}. {TAGLINE}
-        </Text>
+    <View style={{ flexDirection: "row", alignItems: "center", paddingTop: insets.top + 8, paddingBottom: 14, paddingHorizontal: 20 }}>
+      <View style={{ width: SETTINGS_BUTTON }} />
+      <View style={{ flex: 1, alignItems: "center" }}>
+        <Text style={{ color: t.fg, fontSize: 21, fontWeight: "600", letterSpacing: -0.3 }}>{weekday}</Text>
+        <Text style={{ color: t.fg2, fontSize: 13, marginTop: 1 }}>{date}</Text>
       </View>
-      <View style={{ flexDirection: "row", gap: 10 }}>
-        <CircleButton icon="notifications-outline" label="Reminders" onPress={onBell} />
-        {/* Settings sits in the top-right corner. */}
-        <CircleButton icon="settings-outline" label="Settings" onPress={onSettings} />
-      </View>
+      <CircleButton icon="settings-outline" label="Settings" size={SETTINGS_BUTTON} onPress={onSettings} />
     </View>
   );
 }
@@ -181,7 +171,8 @@ function Shell() {
   const [categoryIndex, setCategoryIndex] = useState(0);
   const [editor, setEditor] = useState<{ mode: EditorMode | null; nonce: number }>({ mode: null, nonce: 0 });
   const [statusTask, setStatusTask] = useState<{ task: Task | null; nonce: number }>({ task: null, nonce: 0 });
-  const [panel, setPanel] = useState<"settings" | "reminders" | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [scrollLocked, setScrollLocked] = useState(false);
   useAlarmSync();
 
   const openEditor = useCallback((mode: EditorMode) => setEditor((current) => ({ mode, nonce: current.nonce + 1 })), []);
@@ -228,25 +219,31 @@ function Shell() {
   return (
     <View style={{ flex: 1, backgroundColor: t.bg }}>
       <StatusBar style={t.mode === "dark" ? "light" : "dark"} />
-      <Header now={now} name={state.settings.displayName} onBell={() => setPanel("reminders")} onSettings={() => setPanel("settings")} />
-      <ScrollView key={tab} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 150 }}>
-        {screen()}
-      </ScrollView>
+      <Header now={now} onSettings={() => setSettingsOpen(true)} />
+      <ScrollLockContext value={setScrollLocked}>
+        <ScrollView
+          key={tab}
+          scrollEnabled={!scrollLocked}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 150 }}
+        >
+          {screen()}
+        </ScrollView>
+      </ScrollLockContext>
       <BottomNav tab={tab} onChange={setTab} onAdd={addFromNav} />
 
       <TaskEditor mode={editor.mode} nonce={editor.nonce} onClose={closeEditor} />
       <StatusEditor task={statusTask.task} nonce={statusTask.nonce} onClose={closeStatus} />
-      <SettingsSheet open={panel === "settings"} onClose={() => setPanel(null)} />
-      <RemindersSheet open={panel === "reminders"} onClose={() => setPanel(null)} now={now} />
+      <SettingsSheet open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       <AlarmWatcher />
     </View>
   );
 }
 
+/** The app is dark only. */
 function Themed() {
-  const { state } = useStore();
   return (
-    <ThemeProvider mode={state.settings.theme}>
+    <ThemeProvider mode="dark">
       <Shell />
     </ThemeProvider>
   );

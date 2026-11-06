@@ -1,10 +1,11 @@
-import { Ionicons } from "@expo/vector-icons";
 import { useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import { MARKED_STATUSES, type MarkedStatus, type Task } from "@domain/types";
 import { useStore } from "../store";
-import { STATUS_LABEL, useTheme } from "../theme";
+import { STATUS_HEX, STATUS_LABEL, useTheme } from "../theme";
 import { GhostButton, PrimaryButton, Sheet, StatusSquare, tap } from "../ui";
+
+const CHOICE_SIZE = 76;
 
 interface StatusEditorProps {
   task: Task | null;
@@ -12,7 +13,7 @@ interface StatusEditorProps {
   onClose: () => void;
 }
 
-/** Opened from a status square. Cancel never changes anything. */
+/** Opened from a status icon. Three icons, no words. Cancel never changes anything. */
 export function StatusEditor({ task, nonce, onClose }: StatusEditorProps) {
   return (
     <Sheet open={task !== null} title={task?.title ?? "Status"} onClose={onClose}>
@@ -33,37 +34,39 @@ function StatusForm({ task, onClose }: { task: Task; onClose: () => void }) {
   };
 
   return (
-    <View style={{ gap: 14 }}>
-      <Text style={{ color: t.fg2, fontSize: 14 }}>How did it go?</Text>
-      {MARKED_STATUSES.map((status) => {
-        const active = selected === status;
-        return (
-          <Pressable
-            key={status}
-            accessibilityRole="radio"
-            accessibilityState={{ checked: active }}
-            onPress={() => {
-              tap();
-              setSelected(status);
-            }}
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              gap: 16,
-              padding: 12,
-              borderRadius: 18,
-              borderWidth: active ? 1.5 : 1,
-              borderColor: active ? t.accent : t.edge,
-              backgroundColor: t.surface,
-            }}
-          >
-            <StatusSquare status={status} size={32} />
-            <Text style={{ color: t.fg, fontSize: 16, fontWeight: "500", flex: 1 }}>{STATUS_LABEL[status]}</Text>
-            {active ? <Ionicons name="checkmark" size={20} color={t.fg} /> : null}
-          </Pressable>
-        );
-      })}
-      <View style={{ flexDirection: "row", gap: 12, marginTop: 4 }}>
+    <View style={{ gap: 22 }}>
+      <Text style={{ color: t.fg2, fontSize: 14, textAlign: "center" }}>How did it go?</Text>
+      <View style={{ flexDirection: "row", justifyContent: "center", gap: 18 }}>
+        {MARKED_STATUSES.map((status) => {
+          const active = selected === status;
+          return (
+            <Pressable
+              key={status}
+              accessibilityRole="radio"
+              accessibilityLabel={STATUS_LABEL[status]}
+              accessibilityState={{ checked: active }}
+              onPress={() => {
+                tap();
+                setSelected(status);
+              }}
+              style={({ pressed }) => ({
+                width: CHOICE_SIZE,
+                height: CHOICE_SIZE,
+                borderRadius: CHOICE_SIZE / 2,
+                alignItems: "center",
+                justifyContent: "center",
+                borderWidth: active ? 2 : 1,
+                borderColor: active ? STATUS_HEX[status] : t.edge,
+                backgroundColor: active ? `${STATUS_HEX[status]}26` : t.surface,
+                transform: [{ scale: pressed ? 0.94 : active ? 1.06 : 1 }],
+              })}
+            >
+              <StatusSquare status={status} size={34} />
+            </Pressable>
+          );
+        })}
+      </View>
+      <View style={{ flexDirection: "row", gap: 12 }}>
         <GhostButton onPress={onClose}>Cancel</GhostButton>
         <PrimaryButton disabled={!selected} onPress={save}>
           Save

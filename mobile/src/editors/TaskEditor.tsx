@@ -13,10 +13,18 @@ import {
   zonedParts,
   zonedTimeToUtc,
 } from "@domain/dates";
-import { type TaskDraft, changesDueTime, createTask, repeatTask, updateTask, validateDraft } from "@domain/tasks";
+import {
+  DEFAULT_DURATION_MINUTES,
+  type TaskDraft,
+  changesDueTime,
+  createTask,
+  repeatTask,
+  updateTask,
+  validateDraft,
+} from "@domain/tasks";
 import { type Category, REMINDER_LEAD_MINUTES, type Reminder, type Task } from "@domain/types";
 import { TIME_ZONE, newId, useStore } from "../store";
-import { STATUS_LABEL, readableOn, useTheme } from "../theme";
+import { readableOn, useTheme } from "../theme";
 import { Chip, GhostButton, PrimaryButton, Sheet, StatusSquare, Toggle, Well, categoryIcon, tap } from "../ui";
 import { TimeWheel } from "./TimeWheel";
 
@@ -31,6 +39,15 @@ const MS_PER_HOUR = 3_600_000;
 const LEADS: Record<number, string> = { 0: "At time", 5: "5 min", 10: "10 min", 15: "15 min", 30: "30 min", 60: "1 hour" };
 const LEAD_OPTIONS = REMINDER_LEAD_MINUTES.map((minutes) => ({ value: String(minutes), label: LEADS[minutes] }));
 const DEFAULT_REMINDER: Reminder = { enabled: true, leadMinutes: 10, includeTitle: true };
+const DURATIONS: readonly { minutes: number; label: string }[] = [
+  { minutes: 15, label: "15 min" },
+  { minutes: 30, label: "30 min" },
+  { minutes: 45, label: "45 min" },
+  { minutes: 60, label: "1 hr" },
+  { minutes: 90, label: "1.5 hr" },
+  { minutes: 120, label: "2 hr" },
+  { minutes: 180, label: "3 hr" },
+];
 
 interface FormState {
   title: string;
@@ -40,6 +57,7 @@ interface FormState {
   hour12: number;
   minute: number;
   meridiem: Meridiem;
+  durationMinutes: number;
   reminder: Reminder;
 }
 
@@ -55,6 +73,7 @@ function initialForm(mode: EditorMode, categories: readonly Category[], now: Dat
       hour12: clock.hour12,
       minute: 0,
       meridiem: clock.meridiem,
+      durationMinutes: DEFAULT_DURATION_MINUTES,
       reminder: DEFAULT_REMINDER,
     };
   }
@@ -69,6 +88,7 @@ function initialForm(mode: EditorMode, categories: readonly Category[], now: Dat
     hour12: clock.hour12,
     minute: parts.minute,
     meridiem: clock.meridiem,
+    durationMinutes: mode.task.durationMinutes ?? DEFAULT_DURATION_MINUTES,
     reminder: { ...mode.task.reminder },
   };
 }
@@ -119,6 +139,7 @@ function EditorForm({ mode, onClose }: { mode: EditorMode; onClose: () => void }
       categoryId: form.categoryId,
       dueAt,
       reminder: form.reminder,
+      durationMinutes: form.durationMinutes,
     };
     const now = new Date();
     // Only a task that is still pending has to move to the future. A task already marked
@@ -148,7 +169,6 @@ function EditorForm({ mode, onClose }: { mode: EditorMode; onClose: () => void }
           placeholder="What needs doing?"
           placeholderTextColor={t.fg3}
           maxLength={120}
-          autoFocus={mode.kind === "new"}
           accessibilityLabel="Task name"
           selectionColor={accent}
           style={{ color: t.fg, fontSize: 24, fontWeight: "500", padding: 0 }}
@@ -168,10 +188,8 @@ function EditorForm({ mode, onClose }: { mode: EditorMode; onClose: () => void }
 
       {mode.kind === "edit" && mode.task.status !== "pending" ? (
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: -8 }}>
-          <StatusSquare status={mode.task.status} size={16} />
-          <Text style={{ color: t.fg2, fontSize: 12, flex: 1 }}>
-            Marked {STATUS_LABEL[mode.task.status].toLowerCase()}. Saving keeps that status; change it from the status square.
-          </Text>
+          <StatusSquare status={mode.task.status} size={18} />
+          <Text style={{ color: t.fg2, fontSize: 12, flex: 1 }}>Saving keeps this status. Change it from the status icon.</Text>
         </View>
       ) : null}
 
@@ -260,11 +278,27 @@ function EditorForm({ mode, onClose }: { mode: EditorMode; onClose: () => void }
         </Well>
       </View>
 
+      <View>
+        <Label>Duration</Label>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+          {DURATIONS.map((option) => (
+            <Chip
+              key={option.minutes}
+              active={form.durationMinutes === option.minutes}
+              color={accent}
+              onPress={() => update({ durationMinutes: option.minutes })}
+            >
+              {option.label}
+            </Chip>
+          ))}
+        </ScrollView>
+      </View>
+
       <View style={{ backgroundColor: t.surface, borderColor: t.edge, borderWidth: 1, borderRadius: 24, padding: 14 }}>
         <Toggle
           icon="alarm-outline"
-          label="Phone alarm"
-          description="Rings your phone at the reminder time, even when the app is closed."
+          label="Alarm at start"
+          description="Rings at the reminder time before the task starts."
           value={form.reminder.enabled}
           onChange={(enabled) => updateReminder({ enabled })}
           accent={accent}
@@ -286,6 +320,14 @@ function EditorForm({ mode, onClose }: { mode: EditorMode; onClose: () => void }
             </View>
           </View>
         ) : null}
+        <Toggle
+          icon="flag-outline"
+          label="Alarm at end"
+          description="Rings when the task's duration is over."
+          value={Boolean(form.reminder.atEnd)}
+          onChange={(atEnd) => updateReminder({ atEnd })}
+          accent={accent}
+        />
       </View>
 
       {error ? <Text style={{ color: t.accent, fontSize: 14 }}>{error}</Text> : null}

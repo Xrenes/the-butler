@@ -1,5 +1,4 @@
 import { Ionicons } from "@expo/vector-icons";
-import { LinearGradient } from "expo-linear-gradient";
 import { useEffect, useRef, useState } from "react";
 import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { dayKeyOf, formatDayLabel, formatTime } from "@domain/dates";
@@ -9,7 +8,7 @@ import type { FinanceCategory, Resource, Txn } from "@domain/types";
 import { TIME_ZONE, newId, useStore } from "../store";
 import { useTheme } from "../theme";
 import { Card, Chip, CircleButton, type IconName, Muted, SectionTitle, Segmented, tap } from "../ui";
-import { ResourceGlyph } from "./Keypad";
+import { BalanceStack } from "./BalanceStack";
 import { AccountSheet, AmountSheet, TransferSheet, groupDigits } from "./MoneySheets";
 import { PinScreen } from "./PinScreen";
 
@@ -44,6 +43,13 @@ function FinanceDashboard() {
   const balances = computeBalances(state.resources, state.txns);
   const [sheet, setSheet] = useState<{ value: MoneySheet | null; nonce: number }>({ value: null, nonce: 0 });
   const [selectedId, setSelectedId] = useState(accounts[0]?.id ?? "");
+  // Card 0 is the total; bringing an account card to the front also makes it the entry account.
+  const [frontIndex, setFrontIndex] = useState(0);
+  const showCard = (next: number) => {
+    setFrontIndex(next);
+    const account = next > 0 ? accounts[next - 1] : undefined;
+    if (account) setSelectedId(account.id);
+  };
   const [direction, setDirection] = useState<Direction>("debit");
   const [amountText, setAmountText] = useState("");
   const [category, setCategory] = useState<FinanceCategory>("Food");
@@ -92,53 +98,24 @@ function FinanceDashboard() {
 
   return (
     <View style={{ gap: 24 }}>
-      <LinearGradient
-        colors={["#0B0B0B", "#250A0B", "#561417", "#9C252A", "#D83036"]}
-        start={{ x: 0, y: 0.2 }}
-        end={{ x: 1, y: 0.8 }}
-        style={{ borderRadius: 32, padding: 22, borderWidth: 1, borderColor: "rgba(255,255,255,0.1)" }}
-      >
-        <View style={{ flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
-          <View style={{ flex: 1 }}>
-            <Text style={{ color: "rgba(255,255,255,0.7)", fontSize: 14 }}>Available balance</Text>
-            <Text style={{ color: "#FFFFFF", fontSize: 40, fontWeight: "300", letterSpacing: -1, marginTop: 10 }} numberOfLines={1} adjustsFontSizeToFit>
-              {formatMinor(balances.total)}
-            </Text>
-            <Text style={{ color: "rgba(255,255,255,0.7)", fontSize: 13, marginTop: 10 }}>{accounts.length} accounts</Text>
-          </View>
-          <CircleButton icon="lock-closed-outline" label="Lock finance" onPress={() => dispatch({ type: "finance/lock" })} />
-        </View>
-      </LinearGradient>
-
-      <View>
-        <SectionTitle
-          action={
-            <View style={{ flexDirection: "row", gap: 8 }}>
-              {state.settings.transfersEnabled ? (
-                <Chip icon="swap-horizontal" onPress={() => open({ kind: "transfer" })}>
-                  Transfer
-                </Chip>
-              ) : null}
-              <Chip icon="add" onPress={() => open({ kind: "account", resource: null })}>
-                Add
-              </Chip>
-            </View>
-          }
-        >
-          Accounts
-        </SectionTitle>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12, paddingVertical: 2 }}>
-          {accounts.map((account) => (
-            <AccountCard
-              key={account.id}
-              account={account}
-              balance={balances.byResource[account.id] ?? 0}
-              selected={account.id === selected?.id}
-              onSelect={() => setSelectedId(account.id)}
-              onEdit={() => open({ kind: "account", resource: account })}
-            />
-          ))}
-        </ScrollView>
+      <BalanceStack
+        total={balances.total}
+        accounts={accounts}
+        balances={balances.byResource}
+        index={frontIndex}
+        onIndex={showCard}
+        onLock={() => dispatch({ type: "finance/lock" })}
+        onEdit={(account) => open({ kind: "account", resource: account })}
+      />
+      <View style={{ flexDirection: "row", justifyContent: "center", gap: 8 }}>
+        {state.settings.transfersEnabled ? (
+          <Chip icon="swap-horizontal" onPress={() => open({ kind: "transfer" })}>
+            Transfer
+          </Chip>
+        ) : null}
+        <Chip icon="add" onPress={() => open({ kind: "account", resource: null })}>
+          Add account
+        </Chip>
       </View>
 
       <Card style={{ gap: 14 }}>
@@ -213,46 +190,6 @@ function FinanceDashboard() {
         onClose={close}
       />
       <TransferSheet open={sheet.value?.kind === "transfer"} formKey={sheet.nonce} onClose={close} />
-    </View>
-  );
-}
-
-function AccountCard({
-  account,
-  balance,
-  selected,
-  onSelect,
-  onEdit,
-}: {
-  account: Resource;
-  balance: number;
-  selected: boolean;
-  onSelect: () => void;
-  onEdit: () => void;
-}) {
-  const t = useTheme();
-  return (
-    <View style={{ width: 168, borderRadius: 24, borderWidth: 1.5, borderColor: selected ? t.accent : t.edge, backgroundColor: t.surface, padding: 14 }}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={account.name}
-        accessibilityState={{ selected }}
-        onPress={() => {
-          tap();
-          onSelect();
-        }}
-      >
-        <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: t.surface2, alignItems: "center", justifyContent: "center" }}>
-          <ResourceGlyph icon={account.icon} color={t.fg} />
-        </View>
-        <Text style={{ color: t.fg2, fontSize: 13, marginTop: 14 }}>{account.name}</Text>
-        <Text style={{ color: t.fg, fontSize: 19, fontWeight: "500" }} numberOfLines={1} adjustsFontSizeToFit>
-          {formatMinor(balance)}
-        </Text>
-      </Pressable>
-      <View style={{ position: "absolute", top: 10, right: 10 }}>
-        <CircleButton icon="pencil" label={`Edit ${account.name}`} size={32} onPress={onEdit} />
-      </View>
     </View>
   );
 }
