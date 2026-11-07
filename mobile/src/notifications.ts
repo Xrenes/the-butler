@@ -5,6 +5,7 @@ import { describeLead, endsAt, reminderFireAt } from "@domain/alarms";
 import { TIME_ZONE } from "./store";
 import { formatTime } from "@domain/dates";
 import type { Category, Task } from "@domain/types";
+import { addKitAlarms, alarmKitAvailable, cancelKitAlarms, replaceKitAlarms, requestAlarmKit } from "./alarmKit";
 
 const CHANNEL_ID = "butler-alarm";
 /** iOS keeps at most 64 pending notifications, so only the nearest reminders are scheduled. */
@@ -12,6 +13,7 @@ const MAX_TASKS = 20;
 /** After the first alert, nag again so a missed one is hard to ignore. */
 const FOLLOW_UPS_MINUTES = [1, 3] as const;
 const MS_PER_MINUTE = 60_000;
+const TEST_DELAY_MS = 10_000;
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -37,6 +39,8 @@ export async function ensureAlarmChannel(): Promise<void> {
 /** Asks once; returns whether alerts are allowed. */
 export async function requestPermission(): Promise<boolean> {
   await ensureAlarmChannel();
+  // Real alarms first (installed iPhone app); notifications stay as the backup everywhere.
+  await requestAlarmKit().catch(() => false);
   const current = await Notifications.getPermissionsAsync();
   if (current.granted) return true;
   const asked = await Notifications.requestPermissionsAsync();
@@ -70,6 +74,11 @@ function content(task: Task, category: Category | undefined, nag: number, end: b
   };
 }
 
+function alarmTitle(task: Task, category: Category | undefined, end: boolean): string {
+  const where = category?.name ?? "Task";
+  return end ? `Time's up · ${task.title}` : `${task.title} · ${where}`;
+}
+
 /**
  * Replaces every scheduled alert with the ones the current tasks need. Called whenever tasks or
  * the alarm setting change, so a task marked done or edited never rings from an old schedule.
@@ -81,8 +90,10 @@ export async function syncAlarms(
   now: Date = new Date(),
 ): Promise<number> {
   await Notifications.cancelAllScheduledNotificationsAsync();
-  if (!enabled || !(await permissionGranted())) return 0;
-  await ensureAlarmChannel();
+  if (!enabled) {
+    await cancelKitAlarms().catch(() => undefined);
+    return 0;
+  }
 
   const categoryById = new Map(categories.map((category) => [category.id, category]));
   const upcoming = tasks
@@ -95,6 +106,18 @@ export async function syncAlarms(
     .sort((a, b) => a.fireAt.getTime() - b.fireAt.getTime())
     .slice(0, MAX_TASKS);
 
+  // Installed iPhone app: real alarms that ring full screen like the Clock app, until stopped.
+  if (alarmKitAvailable() && (await requestAlarmKit().catch(() => false))) {
+    return replaceKitAlarms(
+      upcoming.map(({ task, fireAt, end }) => {
+        const category = categoryById.get(task.categoryId);
+        return { at: fireAt, title: alarmTitle(task, category, end), color: category?.color };
+      }),
+    );
+  }
+
+  if (!(await permissionGranted())) return 0;
+  await ensureAlarmChannel();
   let scheduled = 0;
   for (const { task, fireAt, end } of upcoming) {
     const category = categoryById.get(task.categoryId);
@@ -115,6 +138,10 @@ export async function syncAlarms(
 
 /** Fires one alert in a few seconds so the person can hear what a reminder sounds like. */
 export async function sendTestAlarm(): Promise<boolean> {
+  if (alarmKitAvailable() && (await requestAlarmKit().catch(() => false))) {
+    const count = await addKitAlarms([{ at: new Date(Date.now() + TEST_DELAY_MS), title: "The Butler · Test alarm" }]);
+    return count > 0;
+  }
   if (!(await requestPermission())) return false;
   await Notifications.scheduleNotificationAsync({
     content: {

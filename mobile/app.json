@@ -10,7 +10,10 @@
     "backgroundColor": "#111111",
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "app.thebutler.mobile"
+      "bundleIdentifier": "app.thebutler.mobile",
+      "infoPlist": {
+        "NSAlarmKitUsageDescription": "The Butler rings a real alarm when a task starts or ends, so you never miss it."
+      }
     },
     "android": {
       "package": "app.thebutler.mobile",
@@ -31,7 +34,15 @@
         }
       ],
       "expo-font",
-      "expo-audio"
+      "expo-audio",
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "deploymentTarget": "26.1"
+          }
+        }
+      ]
     ],
     "splash": {
       "backgroundColor": "#111111"

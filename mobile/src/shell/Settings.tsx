@@ -169,7 +169,7 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
           <View style={{ flexDirection: "row", gap: 10, marginTop: 10 }}>
             <GhostButton onPress={sendTest}>Send a test alarm</GhostButton>
           </View>
-          {testSent ? <Note>Test alarm coming in 5 seconds. Lock your phone to see how it looks.</Note> : null}
+          {testSent ? <Note>Test alarm coming in about 10 seconds. Lock your phone to see how it rings.</Note> : null}
           <Note>
             {"Reminders repeat after 1 and 3 minutes if you haven't marked the task. For the loudest result, allow Time " +
               "Sensitive notifications and add The Butler to your Focus modes."}
