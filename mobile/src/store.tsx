@@ -11,6 +11,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { EMPTY_STORED_ALARM_MEMORY, type StoredAlarmMemory, pruneStoredAlarmMemory } from "@domain/alarms";
 import { DEFAULT_TIMEZONE, addDays, dayKeyOf, zonedTimeToUtc } from "@domain/dates";
 import { defaultCategories, defaultResources } from "@domain/defaults";
 import { type LedgerContext, computeBalances, makeAdjustment, makeCredit, makeDebit } from "@domain/ledger";
@@ -51,6 +52,8 @@ export interface SavedState {
   txns: Txn[];
   settings: Settings;
   financeLock: FinanceLock;
+  /** Alarms the person stopped or snoozed. Saved, so a snooze still rings after the app is closed. */
+  alarmMemory: StoredAlarmMemory;
 }
 
 /** Saved state plus this session's unlock flag, which is never saved: a restart always locks. */
@@ -66,6 +69,8 @@ export type Action =
   | { type: "task/status"; id: string; status: MarkedStatus; now: Date }
   | { type: "category/save"; category: Category }
   | { type: "alarm/preview"; on: boolean }
+  | { type: "alarm/dismiss"; key: string; at: number }
+  | { type: "alarm/snooze"; key: string; until: number }
   | { type: "txn/add"; txn: Txn }
   | { type: "resource/save"; resource: Resource }
   | { type: "settings/update"; patch: Partial<Settings> }
@@ -113,8 +118,31 @@ export function freshState(now: Date): AppState {
     txns: [],
     settings: DEFAULT_SETTINGS,
     financeLock: OPEN_LOCK,
+    alarmMemory: EMPTY_STORED_ALARM_MEMORY,
     financeUnlocked: false,
     alarmPreview: false,
+  };
+}
+
+/** Saved alarm memory from an older or damaged save becomes empty instead of breaking alarms. */
+function readAlarmMemory(value: unknown, now: Date): StoredAlarmMemory {
+  const record = (input: unknown): Record<string, number> => {
+    if (typeof input !== "object" || input === null) return {};
+    return Object.fromEntries(
+      Object.entries(input).filter((entry): entry is [string, number] => Number.isFinite(entry[1])),
+    );
+  };
+  if (typeof value !== "object" || value === null) return EMPTY_STORED_ALARM_MEMORY;
+  const { dismissed, snoozed } = value as Partial<Record<keyof StoredAlarmMemory, unknown>>;
+  return pruneStoredAlarmMemory({ dismissed: record(dismissed), snoozed: record(snoozed) }, now);
+}
+
+function rememberAlarm(memory: StoredAlarmMemory, action: { key: string; dismissedAt?: number; snoozedUntil?: number }): StoredAlarmMemory {
+  const snoozed = Object.fromEntries(Object.entries(memory.snoozed).filter(([key]) => key !== action.key));
+  const dismissed = Object.fromEntries(Object.entries(memory.dismissed).filter(([key]) => key !== action.key));
+  return {
+    dismissed: action.dismissedAt === undefined ? dismissed : { ...dismissed, [action.key]: action.dismissedAt },
+    snoozed: action.snoozedUntil === undefined ? snoozed : { ...snoozed, [action.key]: action.snoozedUntil },
   };
 }
 
@@ -189,6 +217,10 @@ export function reducer(state: AppState, action: Action): AppState {
       };
     case "alarm/preview":
       return { ...state, alarmPreview: action.on };
+    case "alarm/dismiss":
+      return { ...state, alarmMemory: rememberAlarm(state.alarmMemory, { key: action.key, dismissedAt: action.at }) };
+    case "alarm/snooze":
+      return { ...state, alarmMemory: rememberAlarm(state.alarmMemory, { key: action.key, snoozedUntil: action.until }) };
     case "category/save":
       return { ...state, categories: upsert(state.categories, action.category) };
     case "txn/add":
@@ -241,7 +273,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         if (!raw) return;
         const saved = JSON.parse(raw) as Partial<SavedState>;
         if (!saved.categories?.length || !saved.tasks || !saved.settings) return;
-        const fresh = freshState(new Date());
+        const now = new Date();
+        const fresh = freshState(now);
         dispatch({
           type: "load",
           saved: {
@@ -251,6 +284,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             txns: saved.txns ?? [],
             settings: { ...DEFAULT_SETTINGS, ...saved.settings },
             financeLock: saved.financeLock ?? OPEN_LOCK,
+            alarmMemory: readAlarmMemory(saved.alarmMemory, now),
           },
         });
       })

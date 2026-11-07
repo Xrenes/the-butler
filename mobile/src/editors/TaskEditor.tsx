@@ -36,9 +36,10 @@ const MINUTES = Array.from({ length: 60 }, (_, index) => index);
 const MERIDIEMS: readonly Meridiem[] = ["AM", "PM"];
 const DATE_CHOICES = 14;
 const MS_PER_HOUR = 3_600_000;
-const LEADS: Record<number, string> = { 0: "At time", 5: "5 min", 10: "10 min", 15: "15 min", 30: "30 min", 60: "1 hour" };
+const LEADS: Record<number, string> = { 0: "At start", 5: "5 min early", 10: "10 min early", 15: "15 min early", 30: "30 min early", 60: "1 hr early" };
 const LEAD_OPTIONS = REMINDER_LEAD_MINUTES.map((minutes) => ({ value: String(minutes), label: LEADS[minutes] }));
-const DEFAULT_REMINDER: Reminder = { enabled: true, leadMinutes: 10, includeTitle: true };
+/** New tasks ring exactly when they start; ringing early is a choice. */
+const DEFAULT_REMINDER: Reminder = { enabled: true, leadMinutes: 0, includeTitle: true };
 const DURATIONS: readonly { minutes: number; label: string }[] = [
   { minutes: 15, label: "15 min" },
   { minutes: 30, label: "30 min" },
@@ -298,14 +299,14 @@ function EditorForm({ mode, onClose }: { mode: EditorMode; onClose: () => void }
         <Toggle
           icon="alarm-outline"
           label="Alarm at start"
-          description="Rings at the reminder time before the task starts."
+          description="Rings when the task starts, or earlier if you choose."
           value={form.reminder.enabled}
           onChange={(enabled) => updateReminder({ enabled })}
           accent={accent}
         />
         {form.reminder.enabled ? (
           <View style={{ marginTop: 6 }}>
-            <Label>Remind me before</Label>
+            <Label>Ring</Label>
             <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
               {LEAD_OPTIONS.map((option) => (
                 <Chip

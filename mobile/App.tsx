@@ -7,7 +7,8 @@ import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-cont
 import type { Task } from "@domain/types";
 import { type EditorMode, TaskEditor } from "./src/editors/TaskEditor";
 import { StatusEditor } from "./src/editors/StatusEditor";
-import { type PermissionState, permissionState, requestPermission, syncAlarms } from "./src/notifications";
+import { askForAlarmPermissions, readPermissions } from "./src/alarms/permissions";
+import { syncAlarms } from "./src/alarms/schedule";
 import { CalendarScreen } from "./src/screens/CalendarScreen";
 import { CategoriesScreen } from "./src/screens/CategoriesScreen";
 import { HomeScreen } from "./src/screens/HomeScreen";
@@ -25,14 +26,17 @@ const TAB_META: Record<Tab, { label: string; icon: IconName; active: IconName }>
   calendar: { label: "Calendar", icon: "calendar-outline", active: "calendar" },
   finance: { label: "Finance", icon: "wallet-outline", active: "wallet" },
 };
-/** Keeps the phone's scheduled alarms in step with the tasks, whatever changed them. */
+/**
+ * Keeps the phone's alarms in step with the tasks. Permissions are asked once at launch, one prompt
+ * at a time, and only then does syncing start; after that it syncs on every change to tasks,
+ * categories or alarm answers, and whenever the app comes back to the front.
+ */
 function useAlarmSync() {
   const { state, ready } = useStore();
-  const { tasks, categories, settings } = state;
-  const [permission, setPermission] = useState<PermissionState | null>(null);
+  const { tasks, categories, settings, alarmMemory } = state;
+  const [permissionsAsked, setPermissionsAsked] = useState(false);
   const [opened, setOpened] = useState(0);
 
-  // Re-schedule every time the app comes back to the front, so alarms always match the tasks.
   useEffect(() => {
     const subscription = AppState.addEventListener("change", (next) => {
       if (next === "active") setOpened((count) => count + 1);
@@ -40,22 +44,19 @@ function useAlarmSync() {
     return () => subscription.remove();
   }, []);
 
-  // Alarms are the core of the app, so ask for notification permission once, on first launch.
   useEffect(() => {
-    if (!ready || !settings.phoneAlarm) return;
-    permissionState()
-      .then(async (current) => {
-        if (current !== "undetermined") return current;
-        return (await requestPermission()) ? "granted" : await permissionState();
-      })
-      .then(setPermission)
-      .catch(() => setPermission("denied"));
-  }, [ready, settings.phoneAlarm]);
+    if (!ready || permissionsAsked) return;
+    const check = settings.phoneAlarm ? askForAlarmPermissions("once") : readPermissions();
+    check
+      .catch(() => undefined)
+      .finally(() => setPermissionsAsked(true));
+  }, [ready, permissionsAsked, settings.phoneAlarm]);
 
   useEffect(() => {
-    if (!ready) return;
-    syncAlarms(tasks, categories, settings.phoneAlarm).catch(() => undefined);
-  }, [ready, tasks, categories, settings.phoneAlarm, permission, opened]);
+    if (!ready || !permissionsAsked) return;
+    // Failures are recorded in the alarm health shown in Settings → Alarm check.
+    syncAlarms({ tasks, categories, enabled: settings.phoneAlarm, memory: alarmMemory }).catch(() => undefined);
+  }, [ready, permissionsAsked, tasks, categories, settings.phoneAlarm, alarmMemory, opened]);
 }
 
 const SETTINGS_BUTTON = 44;

@@ -1,6 +1,6 @@
 "use client";
 
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useState, useSyncExternalStore } from "react";
 import type { DemoSettings } from "@/components/demo/seed";
 import { TIME_ZONE, useDemo } from "@/components/demo/store";
 import { Icon, type IconName } from "@/components/icons/Icon";
@@ -11,6 +11,7 @@ import { describeLead } from "@/lib/domain/alarms";
 import { dayKeyOf, formatDayLabel, formatTime } from "@/lib/domain/dates";
 import { parseChatId } from "@/lib/domain/telegram";
 import { sortByDue } from "@/lib/domain/tasks";
+import { type BrowserAlerts, browserAlerts, requestBrowserAlerts } from "./alarmSignals";
 
 const REMINDER_WINDOW_MS = 48 * 60 * 60 * 1000;
 const THEMES = [
@@ -128,6 +129,38 @@ function TelegramSettings() {
   );
 }
 
+const BROWSER_ALERT_TEXT: Record<BrowserAlerts, string> = {
+  granted: "On: alarms also show as notifications when this tab is in the background.",
+  default: "Allow notifications so an alarm is seen even when this tab is in the background.",
+  denied: "Blocked by the browser. Allow notifications for this site in the browser's site settings.",
+  unsupported: "This browser can't show notifications. Keep this tab open for alarms.",
+};
+
+const noSubscription = () => () => undefined;
+
+/** Web alarms ring while the page is open; browser notifications make them visible from other tabs. */
+function BrowserAlertsRow() {
+  const current = useSyncExternalStore(noSubscription, browserAlerts, (): BrowserAlerts => "unsupported");
+  const [answered, setAnswered] = useState<BrowserAlerts | null>(null);
+  const state = answered ?? current;
+  return (
+    <div className="flex items-center gap-3 py-2">
+      <span className="surface-raised grid h-9 w-9 shrink-0 place-items-center rounded-full text-fg-2">
+        <Icon name="bell" size={18} />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm text-fg">Browser alerts</span>
+        <span className="block text-xs text-fg-2">{BROWSER_ALERT_TEXT[state]}</span>
+      </span>
+      {state === "default" ? (
+        <ChipButton icon="bell" onClick={() => requestBrowserAlerts().then(setAnswered)}>
+          Allow
+        </ChipButton>
+      ) : null}
+    </div>
+  );
+}
+
 /** Settings live behind the header gear; appearance is here, never in the header. */
 export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { state, dispatch } = useDemo();
@@ -168,6 +201,7 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
             checked={settings.inAppAlarm}
             onChange={(inAppAlarm) => update({ inAppAlarm })}
           />
+          <BrowserAlertsRow />
         </Group>
         <Group title="Finance">
           <Toggle

@@ -1,20 +1,15 @@
-import { useEffect, useState } from "react";
-import { Alert, Linking, Pressable, Text, TextInput, View } from "react-native";
-import { describeLead } from "@domain/alarms";
-import { dayKeyOf, formatDayLabel, formatTime } from "@domain/dates";
-import { sortByDue } from "@domain/tasks";
-import { type AlarmMode, type PermissionState, alarmMode, permissionState, requestPermission, sendTestAlarm } from "../notifications";
-import { clearPin } from "../pin";
-import { TIME_ZONE, useStore } from "../store";
-import { useTheme } from "../theme";
-import { CategoryBadge, Chip, EmptyState, GhostButton, Sheet, Toggle, type IconName } from "../ui";
 import { Ionicons } from "@expo/vector-icons";
 import type { ReactNode } from "react";
+import { Alert, Pressable, Text, TextInput, View } from "react-native";
+import { askForAlarmPermissions } from "../alarms/permissions";
+import { clearPin } from "../pin";
+import { useStore } from "../store";
+import { useTheme } from "../theme";
+import { Chip, GhostButton, type IconName, Sheet, Toggle } from "../ui";
+import { AlarmCheck } from "./AlarmCheck";
 
 /** Fixed alarm colours to choose from instead of each task's category colour. */
 const ALARM_COLORS = ["#D83036", "#F97316", "#EAB308", "#16A34A", "#0EA5E9", "#8B5CF6", "#EC4899"] as const;
-
-const REMINDER_WINDOW_MS = 48 * 60 * 60 * 1000;
 
 function Group({ title, children }: { title: string; children: ReactNode }) {
   const t = useTheme();
@@ -36,35 +31,11 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
   const t = useTheme();
   const { state, dispatch } = useStore();
   const settings = state.settings;
-  const [permission, setPermission] = useState<PermissionState | null>(null);
-  const [testSent, setTestSent] = useState(false);
-  const [mode, setMode] = useState<AlarmMode | null>(null);
-  const refreshPermission = () =>
-    Promise.all([
-      permissionState().then(setPermission).catch(() => setPermission("denied")),
-      alarmMode().then(setMode).catch(() => setMode("off")),
-    ]);
 
-  useEffect(() => {
-    if (open) refreshPermission();
-  }, [open]);
-
-  const setPhoneAlarm = async (value: boolean) => {
-    dispatch({ type: "settings/update", patch: { phoneAlarm: value } });
-    if (value) await requestPermission().catch(() => false);
-    await refreshPermission();
-  };
-
-  const sendTest = async () => {
-    const ok = await sendTestAlarm().catch(() => false);
-    await refreshPermission();
-    setTestSent(ok);
-    if (!ok) {
-      Alert.alert("Notifications are off", "Allow notifications for The Butler in your phone's settings to get alarms.", [
-        { text: "Cancel", style: "cancel" },
-        { text: "Open settings", onPress: () => Linking.openSettings() },
-      ]);
-    }
+  const setPhoneAlarm = (phoneAlarm: boolean) => {
+    dispatch({ type: "settings/update", patch: { phoneAlarm } });
+    // Turning it back on asks for anything still missing; the alarm sync then follows the setting.
+    if (phoneAlarm) askForAlarmPermissions().catch(() => undefined);
   };
 
   const confirmClear = () =>
@@ -102,25 +73,27 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
           />
         </Group>
 
+        <Group title="Alarm check">{open ? <AlarmCheck /> : null}</Group>
+
         <Group title="Alarms">
           <Toggle
             icon="alarm-outline"
             label="Phone alarm"
-            description="A loud alert at each task's reminder time, even when the app is closed."
+            description="Rings when a task starts or ends, even when the app is closed."
             value={settings.phoneAlarm}
             onChange={setPhoneAlarm}
           />
           <Toggle
             icon="phone-portrait-outline"
             label="On-screen alarm"
-            description="While the app is open, show the task and its category full screen."
+            description="While the app is open, show the task full screen with Done, Snooze and On hold."
             value={settings.inAppAlarm}
             onChange={(inAppAlarm) => dispatch({ type: "settings/update", patch: { inAppAlarm } })}
           />
           <Toggle
             icon="volume-high-outline"
             label="Loud alarm sound"
-            description="Loops until you answer, even on silent."
+            description="In the app, loops until you answer, even on silent."
             value={settings.alarmSound}
             onChange={(alarmSound) => dispatch({ type: "settings/update", patch: { alarmSound } })}
           />
@@ -143,10 +116,10 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
                 dispatch({ type: "alarm/preview", on: true });
               }}
             >
-              Preview alarm
+              Preview alarm screen
             </GhostButton>
           </View>
-          <Text style={{ color: t.fg2, fontSize: 12, marginTop: 8, marginBottom: 8 }}>Alarm colour</Text>
+          <Text style={{ color: t.fg2, fontSize: 12, marginTop: 12, marginBottom: 8 }}>Alarm colour</Text>
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
             <Chip active={settings.alarmColor === "category"} onPress={() => dispatch({ type: "settings/update", patch: { alarmColor: "category" } })}>
               Category colour
@@ -162,21 +135,6 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
               />
             ))}
           </View>
-          {settings.phoneAlarm && mode ? <AlarmModeNote mode={mode} /> : null}
-          {settings.phoneAlarm && permission === "denied" ? (
-            <Note>{"Notifications are blocked for this app. Turn them on in your phone's settings, or no alarm can ring."}</Note>
-          ) : null}
-          {settings.phoneAlarm && permission === "undetermined" ? (
-            <Note>{"Tap “Send a test alarm” and allow notifications so alarms can ring."}</Note>
-          ) : null}
-          <View style={{ flexDirection: "row", gap: 10, marginTop: 10 }}>
-            <GhostButton onPress={sendTest}>Send a test alarm</GhostButton>
-          </View>
-          {testSent ? <Note>Test alarm coming in about 10 seconds. Lock your phone to see how it rings.</Note> : null}
-          <Note>
-            {"Reminders repeat after 1 and 3 minutes if you haven't marked the task. For the loudest result, allow Time " +
-              "Sensitive notifications and add The Butler to your Focus modes."}
-          </Note>
         </Group>
 
         <Group title="Finance">
@@ -220,32 +178,6 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
   );
 }
 
-const MODE_TEXT: Record<AlarmMode, { icon: IconName; text: string; good: boolean }> = {
-  alarm: { icon: "checkmark-circle", text: "Real alarms are on: tasks ring full screen until you stop them.", good: true },
-  notification: {
-    icon: "warning",
-    text: "Only notifications, which are easy to miss. Allow alarms in iPhone Settings → Apps → The Butler → Alarms.",
-    good: false,
-  },
-  off: { icon: "close-circle", text: "Nothing will ring. Allow alarms and notifications for The Butler in iPhone Settings.", good: false },
-};
-
-function AlarmModeNote({ mode }: { mode: AlarmMode }) {
-  const t = useTheme();
-  const { icon, text, good } = MODE_TEXT[mode];
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={text}
-      onPress={good ? undefined : () => Linking.openSettings()}
-      style={{ flexDirection: "row", gap: 8, alignItems: "center", marginTop: 10, padding: 12, borderRadius: 16, backgroundColor: t.surface2 }}
-    >
-      <Ionicons name={icon} size={18} color={good ? "#16A34A" : "#EAB308"} />
-      <Text style={{ color: t.fg, fontSize: 13, flex: 1 }}>{text}</Text>
-    </Pressable>
-  );
-}
-
 function InfoRow({ icon, title, detail }: { icon: IconName; title: string; detail: string }) {
   const t = useTheme();
   return (
@@ -258,51 +190,5 @@ function InfoRow({ icon, title, detail }: { icon: IconName; title: string; detai
         <Text style={{ color: t.fg2, fontSize: 12 }}>{detail}</Text>
       </View>
     </View>
-  );
-}
-
-/** Bell: reminders coming up in the next 48 hours. */
-export function RemindersSheet({ open, onClose, now }: { open: boolean; onClose: () => void; now: Date }) {
-  const t = useTheme();
-  const { state } = useStore();
-  const today = dayKeyOf(now, TIME_ZONE);
-  const categoryById = new Map(state.categories.map((category) => [category.id, category]));
-  const soon = sortByDue(
-    state.tasks.filter((task) => {
-      const due = new Date(task.dueAt).getTime();
-      return task.status === "pending" && task.reminder.enabled && due >= now.getTime() && due <= now.getTime() + REMINDER_WINDOW_MS;
-    }),
-  );
-
-  return (
-    <Sheet open={open} title="Reminders" onClose={onClose}>
-      {soon.length === 0 ? (
-        <EmptyState icon="notifications-outline" title="No reminders soon" hint="Reminders for the next 48 hours show up here." />
-      ) : (
-        <View style={{ gap: 4 }}>
-          {soon.map((task) => {
-            const due = new Date(task.dueAt);
-            const category = categoryById.get(task.categoryId);
-            return (
-              <View key={task.id} style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 10, borderBottomColor: t.line, borderBottomWidth: 1 }}>
-                {category ? <CategoryBadge category={category} /> : null}
-                <View style={{ flex: 1 }}>
-                  <Text style={{ color: t.fg, fontSize: 15, fontWeight: "500" }} numberOfLines={1}>
-                    {task.title}
-                  </Text>
-                  <Text style={{ color: t.fg2, fontSize: 12 }} numberOfLines={1}>
-                    {category?.name ?? "No category"} · {describeLead(task.reminder.leadMinutes)}
-                  </Text>
-                </View>
-                <View style={{ alignItems: "flex-end" }}>
-                  <Text style={{ color: t.fg, fontSize: 14 }}>{formatTime(due, TIME_ZONE)}</Text>
-                  <Text style={{ color: t.fg3, fontSize: 11 }}>{formatDayLabel(dayKeyOf(due, TIME_ZONE), today)}</Text>
-                </View>
-              </View>
-            );
-          })}
-        </View>
-      )}
-    </Sheet>
   );
 }

@@ -16,6 +16,7 @@ import {
 } from "@/lib/domain/alarms";
 import { dayKeyOf, formatDayLabel, formatTime } from "@/lib/domain/dates";
 import type { Category, MarkedStatus, Task } from "@/lib/domain/types";
+import { notifyBrowser, unlockAlarmAudio, useAlarmTone, useTabTitleFlash } from "./alarmSignals";
 
 const MS_PER_MINUTE = 60_000;
 /** Checked every second so the alarm appears on time without re-rendering the rest of the app. */
@@ -27,6 +28,16 @@ export function AlarmWatcher() {
   const { state, dispatch } = useDemo();
   const now = useNow(TICK_MS);
   const [memory, setMemory] = useState<AlarmMemory>(EMPTY_ALARM_MEMORY);
+
+  // Browsers only allow sound after the person interacts with the page; any tap or key unlocks it.
+  useEffect(() => {
+    window.addEventListener("pointerdown", unlockAlarmAudio, true);
+    window.addEventListener("keydown", unlockAlarmAudio, true);
+    return () => {
+      window.removeEventListener("pointerdown", unlockAlarmAudio, true);
+      window.removeEventListener("keydown", unlockAlarmAudio, true);
+    };
+  }, []);
 
   const due = state.settings.inAppAlarm ? dueAlarms(state.tasks, now, memory) : [];
   const task = due[0] ?? null;
@@ -89,6 +100,15 @@ function AlarmAlert({ task, category, now, position, total, onDone, onHold, onSn
   const color = category?.color ?? FALLBACK_COLOR;
   const due = new Date(task.dueAt);
   const dueDay = formatDayLabel(dayKeyOf(due, TIME_ZONE), dayKeyOf(now, TIME_ZONE));
+  const categoryName = category?.name ?? "Task";
+
+  useAlarmTone(true);
+  useTabTitleFlash(`⏰ ${task.title}`);
+
+  // A tab in the background can't be seen, so it also raises a system notification (if allowed).
+  useEffect(() => {
+    if (document.hidden) notifyBrowser(task.title, `${categoryName} · due ${formatTime(new Date(task.dueAt), TIME_ZONE)}`, alarmKey(task));
+  }, [task, categoryName]);
 
   useEffect(() => {
     dialogRef.current?.focus();

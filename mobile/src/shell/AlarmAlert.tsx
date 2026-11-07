@@ -1,11 +1,22 @@
 import { Ionicons } from "@expo/vector-icons";
-import { createAudioPlayer, setAudioModeAsync } from "expo-audio";
-import { useEffect, useState } from "react";
-import { Animated, Easing, Modal, Pressable, ScrollView, Text, Vibration, View } from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
+import { type ComponentProps, useEffect, useMemo, useState } from "react";
+import {
+  AccessibilityInfo,
+  Animated,
+  Easing,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  Vibration,
+  View,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   type AlarmMemory,
-  EMPTY_ALARM_MEMORY,
   SNOOZE_MINUTES,
   alarmKey,
   dueAlarms,
@@ -13,23 +24,55 @@ import {
   dueEndAlarms,
   endAlarmKey,
   endsAt,
+  reminderFireAt,
+  toAlarmMemory,
 } from "@domain/alarms";
-import { formatTime } from "@domain/dates";
+import { dayKeyOf, formatLongDate, formatTime } from "@domain/dates";
+import { durationOf } from "@domain/tasks";
 import type { Category, MarkedStatus, Task } from "@domain/types";
+import { flashTabTitle, showBrowserAlarm } from "../alarms/browser";
+import { useAlarmHealth } from "../alarms/health";
+import { primeAlarmSound, startAlarmSound, stopAlarmSound } from "../alarms/sound";
 import { type Settings, TIME_ZONE, useNow, useStore } from "../store";
-import { useTheme } from "../theme";
+import { readableOn, useTheme } from "../theme";
 import { categoryIcon, tap } from "../ui";
 
 const MS_PER_MINUTE = 60_000;
+const MINUTES_PER_HOUR = 60;
 const FALLBACK_COLOR = "#D83036";
-const FLASH_MS = 450;
+/** First seen more than this long after its time, the alarm already rang while the app was closed. */
+const LIVE_WINDOW_MS = 60_000;
+const FLASH_MS = 520;
+const PULSE_MS = 2400;
+const DIM_GLOW = 0.35;
+const STEADY_GLOW = 0.7;
 const VIBRATION_PATTERN = [0, 700, 500];
-const ALARM_SOUND = require("../../assets/alarm.wav");
-/** How strongly the alarm colour washes over the dark background at the peak of each flash. */
-const FLASH_MIN = 0.12;
-const FLASH_MAX = 0.75;
+const BADGE = 112;
+const RING_COUNT = 3;
 
 type AlarmKind = "start" | "end";
+type IconName = ComponentProps<typeof Ionicons>["name"];
+
+interface DueAlarm {
+  task: Task;
+  kind: AlarmKind;
+  /** The alarm's own key (not a snooze's), so stop and snooze apply to the alarm itself. */
+  key: string;
+  /** When it started ringing: its time, or the end of its snooze. */
+  fireAt: number;
+}
+
+function dueList(tasks: readonly Task[], now: Date, memory: AlarmMemory): DueAlarm[] {
+  const starts = dueAlarms(tasks, now, memory).map((task): DueAlarm => {
+    const key = alarmKey(task);
+    return { task, kind: "start", key, fireAt: memory.snoozedUntil.get(key) ?? reminderFireAt(task).getTime() };
+  });
+  const ends = dueEndAlarms(tasks, now, memory).map((task): DueAlarm => {
+    const key = endAlarmKey(task);
+    return { task, kind: "end", key, fireAt: memory.snoozedUntil.get(key) ?? endsAt(task).getTime() };
+  });
+  return [...starts, ...ends].sort((a, b) => a.fireAt - b.fireAt);
+}
 
 /** A sample task for Settings → Preview alarm. Never saved. */
 function previewTask(now: Date, categoryId: string): Task {
@@ -41,6 +84,7 @@ function previewTask(now: Date, categoryId: string): Task {
     description: "This is how a task alarm looks and sounds. Tap any button to close it.",
     categoryId,
     dueAt: stamp,
+    durationMinutes: 30,
     status: "pending",
     statusChangedAt: null,
     reminder: { enabled: true, leadMinutes: 0, includeTitle: true },
@@ -50,19 +94,23 @@ function previewTask(now: Date, categoryId: string): Task {
   };
 }
 
-/** Watches the clock and rings the earliest due alarm: a task starting, or a task's time running out. */
+/** Web: browsers block sound until the page is tapped, so the first tap unlocks the alarm sound. */
+function usePrimeWebAudio() {
+  useEffect(() => {
+    if (Platform.OS !== "web" || typeof document === "undefined") return;
+    const prime = () => primeAlarmSound();
+    document.addEventListener("pointerdown", prime, { once: true, capture: true });
+    return () => document.removeEventListener("pointerdown", prime, { capture: true });
+  }, []);
+}
+
+/** Watches the clock and shows the earliest due alarm: a task starting, its time running out, or a snooze ending. */
 export function AlarmWatcher() {
   const { state, dispatch } = useStore();
   const now = useNow(1000);
-  const [memory, setMemory] = useState<AlarmMemory>(EMPTY_ALARM_MEMORY);
-  const enabled = state.settings.inAppAlarm;
-  const starts = enabled ? dueAlarms(state.tasks, now, memory) : [];
-  const ends = enabled ? dueEndAlarms(state.tasks, now, memory) : [];
-  const current = starts[0]
-    ? { task: starts[0], kind: "start" as AlarmKind, key: alarmKey(starts[0]) }
-    : ends[0]
-      ? { task: ends[0], kind: "end" as AlarmKind, key: endAlarmKey(ends[0]) }
-      : null;
+  const health = useAlarmHealth();
+  const memory = useMemo(() => toAlarmMemory(state.alarmMemory), [state.alarmMemory]);
+  usePrimeWebAudio();
 
   if (state.alarmPreview) {
     const close = () => dispatch({ type: "alarm/preview", on: false });
@@ -75,6 +123,8 @@ export function AlarmWatcher() {
         waiting={0}
         settings={state.settings}
         now={now}
+        fireAt={now.getTime()}
+        realAlarmRings={false}
         onDone={close}
         onHold={close}
         onSnooze={close}
@@ -82,36 +132,68 @@ export function AlarmWatcher() {
       />
     );
   }
+
+  const due = state.settings.inAppAlarm ? dueList(state.tasks, now, memory) : [];
+  const current = due[0];
   if (!current) return null;
 
   const { task, kind, key } = current;
-  const remember = (update: (previous: AlarmMemory) => AlarmMemory) => setMemory(update);
-  const stop = () => remember((previous) => ({ ...previous, dismissed: new Set(previous.dismissed).add(key) }));
-  const snooze = () =>
-    remember((previous) => ({
-      ...previous,
-      snoozedUntil: new Map(previous.snoozedUntil).set(key, Date.now() + SNOOZE_MINUTES * MS_PER_MINUTE),
-    }));
+  const stop = () => dispatch({ type: "alarm/dismiss", key, at: Date.now() });
+  const snooze = () => dispatch({ type: "alarm/snooze", key, until: Date.now() + SNOOZE_MINUTES * MS_PER_MINUTE });
   const mark = (status: MarkedStatus) => {
-    stop();
     dispatch({ type: "task/status", id: task.id, status, now: new Date() });
+    stop();
   };
 
   return (
     <AlarmScreen
-      key={key}
+      key={`${key}|${current.fireAt}`}
       task={task}
       kind={kind}
       category={state.categories.find((item) => item.id === task.categoryId)}
-      waiting={starts.length + ends.length - 1}
+      waiting={due.length - 1}
       settings={state.settings}
       now={now}
+      fireAt={current.fireAt}
+      // The iPhone's real alarm already rings with sound; the app adds the screen and buttons.
+      realAlarmRings={health?.mode === "alarm"}
       onDone={() => mark("C")}
       onHold={() => mark("H")}
       onSnooze={snooze}
       onStop={stop}
     />
   );
+}
+
+function useReduceMotion(): boolean {
+  const [reduce, setReduce] = useState(false);
+  useEffect(() => {
+    let active = true;
+    AccessibilityInfo.isReduceMotionEnabled()
+      .then((value) => {
+        if (active) setReduce(value);
+      })
+      .catch(() => undefined);
+    const subscription = AccessibilityInfo.addEventListener("reduceMotionChanged", setReduce);
+    return () => {
+      active = false;
+      subscription.remove();
+    };
+  }, []);
+  return reduce;
+}
+
+function withAlpha(hex: string, alpha: number): string {
+  if (!/^#[0-9a-f]{6}$/i.test(hex)) return hex;
+  const byte = Math.round(Math.min(Math.max(alpha, 0), 1) * 255);
+  return `${hex}${byte.toString(16).padStart(2, "0")}`;
+}
+
+function durationLabel(minutes: number): string {
+  const hours = Math.floor(minutes / MINUTES_PER_HOUR);
+  const rest = minutes % MINUTES_PER_HOUR;
+  if (hours === 0) return `${rest} min`;
+  return rest === 0 ? `${hours} hr` : `${hours} hr ${rest} min`;
 }
 
 interface AlarmScreenProps {
@@ -121,102 +203,166 @@ interface AlarmScreenProps {
   waiting: number;
   settings: Settings;
   now: Date;
+  fireAt: number;
+  realAlarmRings: boolean;
   onDone: () => void;
   onHold: () => void;
   onSnooze: () => void;
   onStop: () => void;
 }
 
-/** Full-screen alarm, like the iPhone clock but in colour: flashing background, loud looping sound. */
-function AlarmScreen({ task, kind, category, waiting, settings, now, onDone, onHold, onSnooze, onStop }: AlarmScreenProps) {
-  const t = useTheme();
-  const insets = useSafeAreaInsets();
-  const [flash] = useState(() => new Animated.Value(0));
-  const color = settings.alarmColor === "category" ? (category?.color ?? FALLBACK_COLOR) : settings.alarmColor;
-  const muted = t.fg2;
-
-  // Loud looping sound, even with the ring/silent switch on, until the alarm is answered.
+/** Sound, vibration and the web's notification and tab title, for as long as the alarm is up. */
+function useAlarmSignals(options: { sound: boolean; vibrate: boolean; web: { title: string; body: string; tag: string } | null }) {
+  const { sound, vibrate, web } = options;
   useEffect(() => {
-    if (!settings.alarmSound) return;
-    const player = createAudioPlayer(ALARM_SOUND);
-    player.loop = true;
-    player.volume = 1;
-    setAudioModeAsync({ playsInSilentMode: true })
-      .catch(() => undefined)
-      .finally(() => player.play());
-    return () => player.remove();
-  }, [settings.alarmSound]);
+    if (!sound) return;
+    void startAlarmSound();
+    return () => stopAlarmSound();
+  }, [sound]);
 
   useEffect(() => {
-    if (!settings.alarmVibrate) return;
+    if (!vibrate || Platform.OS === "web") return;
     Vibration.vibrate(VIBRATION_PATTERN, true);
     return () => Vibration.cancel();
-  }, [settings.alarmVibrate]);
+  }, [vibrate]);
 
+  const webTitle = web?.title;
+  const webBody = web?.body;
+  const webTag = web?.tag;
   useEffect(() => {
-    if (!settings.alarmFlash) {
-      flash.setValue(1);
+    if (Platform.OS !== "web" || !webTitle || !webTag) return;
+    showBrowserAlarm(webTitle, webBody ?? "", webTag);
+    return flashTabTitle(`⏰ ${webTitle}`);
+  }, [webTitle, webBody, webTag]);
+}
+
+/** Full-screen alarm in the app's dark theme: a glowing colour wash, pulsing badge, big clock and clear actions. */
+function AlarmScreen({ task, kind, category, waiting, settings, now, fireAt, realAlarmRings, onDone, onHold, onSnooze, onStop }: AlarmScreenProps) {
+  const t = useTheme();
+  const insets = useSafeAreaInsets();
+  const reduceMotion = useReduceMotion();
+  // Decided once per alarm: one that went off while the app was closed is shown quietly.
+  const [live] = useState(() => now.getTime() - fireAt < LIVE_WINDOW_MS);
+  const color = settings.alarmColor === "category" ? (category?.color ?? FALLBACK_COLOR) : settings.alarmColor;
+  const onColor = readableOn(color);
+
+  const due = new Date(task.dueAt);
+  const range = `${formatTime(due, TIME_ZONE)} – ${formatTime(endsAt(task), TIME_ZONE)}`;
+  const headline = kind === "end" ? "Time is up" : dueCountdown(task, now);
+  const [clock, meridiem] = formatTime(now, TIME_ZONE).split(" ");
+  const where = category?.name ?? "Task";
+
+  useAlarmSignals({
+    sound: live && settings.alarmSound && !realAlarmRings,
+    vibrate: live && settings.alarmVibrate,
+    web: live ? { title: task.title, body: `${where} · ${headline}`, tag: `${task.id}|${kind}|${fireAt}` } : null,
+  });
+
+  const animate = live && !reduceMotion;
+  const [glow] = useState(() => new Animated.Value(STEADY_GLOW));
+  useEffect(() => {
+    if (!animate || !settings.alarmFlash) {
+      glow.setValue(STEADY_GLOW);
       return;
     }
     const pulse = Animated.loop(
       Animated.sequence([
-        Animated.timing(flash, { toValue: 1, duration: FLASH_MS, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
-        Animated.timing(flash, { toValue: 0, duration: FLASH_MS, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+        Animated.timing(glow, { toValue: 1, duration: FLASH_MS, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+        Animated.timing(glow, { toValue: DIM_GLOW, duration: FLASH_MS, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
       ]),
     );
     pulse.start();
     return () => pulse.stop();
-  }, [flash, settings.alarmFlash]);
+  }, [animate, glow, settings.alarmFlash]);
 
-  const headline = kind === "start" ? dueCountdown(task, now) : `Time's up · ended ${formatTime(endsAt(task), TIME_ZONE)}`;
+  const wash: readonly [string, string, string] = [withAlpha(color, 0.9), withAlpha(color, 0.28), withAlpha(t.bg, 0)];
 
   return (
-    <Modal visible animationType="fade" onRequestClose={onStop} statusBarTranslucent>
-      <View style={{ flex: 1, backgroundColor: t.bg }}>
-        <Animated.View
-          pointerEvents="none"
-          style={{
-            position: "absolute",
-            top: 0,
-            bottom: 0,
-            left: 0,
-            right: 0,
-            backgroundColor: color,
-            opacity: flash.interpolate({ inputRange: [0, 1], outputRange: [FLASH_MIN, FLASH_MAX] }),
-          }}
-        />
-        <View style={{ flex: 1, paddingTop: insets.top + 24, paddingBottom: insets.bottom + 24, paddingHorizontal: 24 }}>
-          <View accessibilityRole="alert" style={{ alignItems: "center" }}>
-            <Text style={{ color: t.accent, fontSize: 13, fontWeight: "700", letterSpacing: 3 }}>{kind === "start" ? "ALARM" : "TIME'S UP"}</Text>
-            <Text style={{ color: t.fg, fontSize: 76, fontWeight: "200", letterSpacing: -2, marginTop: 6, fontVariant: ["tabular-nums"] }}>
-              {formatTime(now, TIME_ZONE).replace(/\s?[AP]M$/, "")}
-            </Text>
+    <Modal visible animationType="fade" onRequestClose={onStop} statusBarTranslucent supportedOrientations={["portrait"]}>
+      <View accessibilityViewIsModal style={{ flex: 1, backgroundColor: t.bg }}>
+        <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { opacity: glow }]}>
+          <LinearGradient colors={wash} locations={[0, 0.42, 0.85]} style={StyleSheet.absoluteFill} />
+        </Animated.View>
+
+        <View style={{ flex: 1, paddingTop: insets.top + 14, paddingBottom: insets.bottom + 18, paddingHorizontal: 22 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, height: 30, borderRadius: 15, backgroundColor: "rgba(0,0,0,0.35)" }}>
+              <Ionicons name={kind === "end" ? "flag" : "alarm"} size={14} color="#FFFFFF" />
+              <Text style={{ color: "#FFFFFF", fontSize: 12, fontWeight: "700", letterSpacing: 2 }}>{kind === "end" ? "TIME'S UP" : "ALARM"}</Text>
+            </View>
+            {waiting > 0 ? <Text style={{ color: "#FFFFFF", fontSize: 13, fontWeight: "600" }}>+{waiting} more</Text> : null}
+          </View>
+
+          <View style={{ alignItems: "center", marginTop: 10 }} accessible accessibilityLabel={`It is ${clock} ${meridiem ?? ""}`}>
+            <View style={{ flexDirection: "row", alignItems: "flex-end" }}>
+              <Text style={{ color: "#FFFFFF", fontSize: 84, fontWeight: "200", letterSpacing: -3, fontVariant: ["tabular-nums"] }}>{clock}</Text>
+              {meridiem ? <Text style={{ color: "#FFFFFF", fontSize: 20, fontWeight: "500", marginBottom: 18, marginLeft: 6 }}>{meridiem}</Text> : null}
+            </View>
+            <Text style={{ color: "rgba(255,255,255,0.8)", fontSize: 15, marginTop: -6 }}>{formatLongDate(dayKeyOf(now, TIME_ZONE))}</Text>
+          </View>
+
+          <View style={{ height: BADGE * 2.1, alignItems: "center", justifyContent: "center" }}>
+            <PulseRings color={color} active={animate} />
             <View
-              style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 10, paddingHorizontal: 14, height: 34, borderRadius: 17, backgroundColor: t.surface2, borderWidth: 1, borderColor: t.edge }}
+              style={{
+                width: BADGE,
+                height: BADGE,
+                borderRadius: BADGE * 0.3,
+                backgroundColor: color,
+                alignItems: "center",
+                justifyContent: "center",
+                borderWidth: 1,
+                borderColor: "rgba(255,255,255,0.25)",
+                shadowColor: color,
+                shadowOpacity: 0.85,
+                shadowRadius: 34,
+                shadowOffset: { width: 0, height: 0 },
+                elevation: 18,
+              }}
             >
-              <Ionicons name={category ? categoryIcon(category.icon) : "alarm-outline"} size={16} color={category?.color ?? t.accent} />
-              <Text style={{ color: t.fg, fontSize: 14, fontWeight: "600" }}>{category?.name ?? "Task"}</Text>
-              {waiting > 0 ? <Text style={{ color: muted, fontSize: 12 }}>+{waiting} more</Text> : null}
+              <Ionicons name={category ? categoryIcon(category.icon) : "alarm"} size={52} color={onColor} />
             </View>
           </View>
 
-          <ScrollView style={{ flex: 1, marginTop: 28 }} contentContainerStyle={{ alignItems: "center", gap: 10 }} showsVerticalScrollIndicator={false}>
-            <Text style={{ color: t.fg, fontSize: 34, fontWeight: "700", textAlign: "center", letterSpacing: -0.5 }}>{task.title}</Text>
-            <Text style={{ color: muted, fontSize: 16, fontWeight: "500" }}>{headline}</Text>
+          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ alignItems: "center", gap: 10, paddingBottom: 10 }} showsVerticalScrollIndicator={false}>
+            <Text accessibilityRole="header" style={{ color: t.fg, fontSize: 30, fontWeight: "700", textAlign: "center", letterSpacing: -0.6 }} numberOfLines={3}>
+              {task.title}
+            </Text>
+            <Text style={{ color: kind === "end" ? color : t.fg, fontSize: 16, fontWeight: "600" }}>{headline}</Text>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8 }}>
+              <InfoChip icon={category ? categoryIcon(category.icon) : "pricetag-outline"} tint={category?.color ?? t.fg2} label={where} />
+              <InfoChip icon="time-outline" tint={t.fg2} label={range} />
+              <InfoChip icon="hourglass-outline" tint={t.fg2} label={durationLabel(durationOf(task))} />
+            </View>
+            {!live ? (
+              <Text style={{ color: t.fg3, fontSize: 13, textAlign: "center" }}>This alarm rang while the app was closed.</Text>
+            ) : null}
             {task.description ? (
-              <View style={{ alignSelf: "stretch", marginTop: 8, padding: 16, borderRadius: 24, backgroundColor: t.surface, borderWidth: 1, borderColor: t.edge }}>
-                <Text style={{ color: t.fg, fontSize: 16, lineHeight: 23 }}>{task.description}</Text>
+              <View style={{ alignSelf: "stretch", marginTop: 4, padding: 16, borderRadius: 22, backgroundColor: t.surface, borderWidth: 1, borderColor: t.edge }}>
+                <Text style={{ color: t.fg2, fontSize: 12, fontWeight: "600", letterSpacing: 0.6, marginBottom: 6 }}>NOTES</Text>
+                <Text style={{ color: t.fg, fontSize: 15, lineHeight: 22 }}>{task.description}</Text>
               </View>
             ) : null}
           </ScrollView>
 
-          <View style={{ gap: 12 }}>
-            <AlarmButton label="Done" icon="checkmark" filled onPress={onDone} />
-            <View style={{ flexDirection: "row", gap: 12 }}>
+          <View style={{ gap: 10, paddingTop: 6 }}>
+            <AlarmButton label="Done" icon="checkmark" color={color} textColor={onColor} onPress={onDone} />
+            <View style={{ flexDirection: "row", gap: 10 }}>
               <AlarmButton label={`Snooze ${SNOOZE_MINUTES} min`} icon="time-outline" onPress={onSnooze} />
               <AlarmButton label="On hold" icon="pause" onPress={onHold} />
             </View>
-            <AlarmButton label="Stop" icon="stop-circle-outline" onPress={onStop} />
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Stop alarm"
+              hitSlop={8}
+              onPress={() => {
+                tap();
+                onStop();
+              }}
+              style={({ pressed }) => ({ alignSelf: "center", paddingVertical: 10, paddingHorizontal: 28, opacity: pressed ? 0.6 : 1 })}
+            >
+              <Text style={{ color: t.fg2, fontSize: 15, fontWeight: "600" }}>Stop alarm</Text>
+            </Pressable>
           </View>
         </View>
       </View>
@@ -224,9 +370,66 @@ function AlarmScreen({ task, kind, category, waiting, settings, now, onDone, onH
   );
 }
 
-/** Same shapes and colours as the app's own buttons: red primary, dark bordered secondary. */
-function AlarmButton({ label, icon, filled, onPress }: { label: string; icon: React.ComponentProps<typeof Ionicons>["name"]; filled?: boolean; onPress: () => void }) {
+/** Rounded squares that grow and fade out of the badge, one after another. */
+function PulseRings({ color, active }: { color: string; active: boolean }) {
+  const [progress] = useState(() => new Animated.Value(0));
+  const [phases] = useState(() =>
+    Array.from({ length: RING_COUNT }, (_, ring) => Animated.modulo(Animated.add(progress, ring / RING_COUNT), 1)),
+  );
+  useEffect(() => {
+    if (!active) return;
+    progress.setValue(0);
+    const loop = Animated.loop(Animated.timing(progress, { toValue: 1, duration: PULSE_MS, easing: Easing.linear, useNativeDriver: true }));
+    loop.start();
+    return () => loop.stop();
+  }, [active, progress]);
+
+  if (!active) return null;
+  return (
+    <>
+      {phases.map((phase, ring) => (
+        <Animated.View
+          key={ring}
+          pointerEvents="none"
+          style={{
+            position: "absolute",
+            width: BADGE,
+            height: BADGE,
+            borderRadius: BADGE * 0.3,
+            borderWidth: 2,
+            borderColor: color,
+            opacity: phase.interpolate({ inputRange: [0, 1], outputRange: [0.6, 0] }),
+            transform: [{ scale: phase.interpolate({ inputRange: [0, 1], outputRange: [1, 2] }) }],
+          }}
+        />
+      ))}
+    </>
+  );
+}
+
+function InfoChip({ icon, tint, label }: { icon: IconName; tint: string; label: string }) {
   const t = useTheme();
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 12, height: 32, borderRadius: 16, backgroundColor: t.surface2, borderWidth: 1, borderColor: t.edge }}>
+      <Ionicons name={icon} size={14} color={tint} />
+      <Text style={{ color: t.fg, fontSize: 13, fontWeight: "500" }}>{label}</Text>
+    </View>
+  );
+}
+
+interface AlarmButtonProps {
+  label: string;
+  icon: IconName;
+  /** Filled with this colour; without it, the app's dark secondary style. */
+  color?: string;
+  textColor?: string;
+  onPress: () => void;
+}
+
+function AlarmButton({ label, icon, color, textColor, onPress }: AlarmButtonProps) {
+  const t = useTheme();
+  const filled = color !== undefined;
+  const foreground = filled ? (textColor ?? "#FFFFFF") : t.fg;
   return (
     <Pressable
       accessibilityRole="button"
@@ -236,21 +439,22 @@ function AlarmButton({ label, icon, filled, onPress }: { label: string; icon: Re
         onPress();
       }}
       style={({ pressed }) => ({
-        flex: 1,
-        height: 58,
-        borderRadius: 29,
+        flex: filled ? undefined : 1,
+        height: filled ? 62 : 56,
+        borderRadius: filled ? 31 : 28,
         flexDirection: "row",
         alignItems: "center",
         justifyContent: "center",
         gap: 8,
-        backgroundColor: filled ? t.accent : t.surface2,
+        backgroundColor: filled ? color : t.surface2,
         borderWidth: 1,
-        borderColor: filled ? t.accentHi : t.edge,
-        opacity: pressed ? 0.8 : 1,
+        borderColor: filled ? "rgba(255,255,255,0.25)" : t.edge,
+        opacity: pressed ? 0.82 : 1,
+        transform: [{ scale: pressed ? 0.98 : 1 }],
       })}
     >
-      <Ionicons name={icon} size={20} color={filled ? "#FFFFFF" : t.fg} />
-      <Text style={{ color: filled ? "#FFFFFF" : t.fg, fontSize: 17, fontWeight: "600" }}>{label}</Text>
+      <Ionicons name={icon} size={filled ? 22 : 19} color={foreground} />
+      <Text style={{ color: foreground, fontSize: filled ? 18 : 16, fontWeight: filled ? "700" : "600" }}>{label}</Text>
     </Pressable>
   );
 }

@@ -77,6 +77,79 @@ export function dueEndAlarms(tasks: readonly Task[], now: Date, memory: AlarmMem
     .sort((a, b) => endsAt(a).getTime() - endsAt(b).getTime() || a.title.localeCompare(b.title));
 }
 
+export type PlannedAlarmKind = "start" | "end" | "snooze";
+
+export interface PlannedAlarm {
+  /** The same for the same alarm on every call, so a re-sync keeps an alarm instead of re-creating it. */
+  key: string;
+  task: Task;
+  kind: PlannedAlarmKind;
+  /** Whether it is (or, for a snooze, repeats) the end-of-task alarm. */
+  end: boolean;
+  fireAt: Date;
+}
+
+/**
+ * Every alarm the phone should be holding, earliest first: the start and end alarms of pending
+ * tasks, with a snoozed alarm replaced by its snooze and a dismissed one left out. Alarms that fired
+ * less than `keepPastMs` ago stay in the plan, so a sync never cancels an alarm while it is ringing.
+ */
+export function planAlarms(
+  tasks: readonly Task[],
+  now: Date,
+  memory: AlarmMemory = EMPTY_ALARM_MEMORY,
+  keepPastMs = 0,
+): PlannedAlarm[] {
+  const fromMs = now.getTime() - keepPastMs;
+  return tasks
+    .filter((task) => task.status === "pending")
+    .flatMap((task) => {
+      const candidates = [
+        ...(task.reminder.enabled ? [{ key: alarmKey(task), end: false, fireAt: reminderFireAt(task) }] : []),
+        ...(task.reminder.atEnd ? [{ key: endAlarmKey(task), end: true, fireAt: endsAt(task) }] : []),
+      ];
+      return candidates.flatMap(({ key, end, fireAt }): PlannedAlarm[] => {
+        if (memory.dismissed.has(key)) return [];
+        const snoozedUntil = memory.snoozedUntil.get(key);
+        if (snoozedUntil !== undefined) {
+          return [{ key: `${key}|snooze|${snoozedUntil}`, task, kind: "snooze", end, fireAt: new Date(snoozedUntil) }];
+        }
+        return [{ key, task, kind: end ? "end" : "start", end, fireAt }];
+      });
+    })
+    .filter((alarm) => alarm.fireAt.getTime() > fromMs)
+    .sort((a, b) => a.fireAt.getTime() - b.fireAt.getTime() || a.key.localeCompare(b.key));
+}
+
+/** The person's answers to alarms, kept on the device: alarm key to when it was dismissed or snoozed until. */
+export interface StoredAlarmMemory {
+  dismissed: Readonly<Record<string, number>>;
+  snoozed: Readonly<Record<string, number>>;
+}
+
+export const EMPTY_STORED_ALARM_MEMORY: StoredAlarmMemory = { dismissed: {}, snoozed: {} };
+
+/** A dismissal only matters while its alarm could still ring, which is well under a day. */
+const DISMISSAL_TTL_MS = 24 * MINUTES_PER_HOUR * MS_PER_MINUTE;
+
+export function toAlarmMemory(stored: StoredAlarmMemory): AlarmMemory {
+  return {
+    dismissed: new Set(Object.keys(stored.dismissed)),
+    snoozedUntil: new Map(Object.entries(stored.snoozed)),
+  };
+}
+
+/** Forgets answers that can no longer matter: expired snoozes and day-old dismissals. */
+export function pruneStoredAlarmMemory(stored: StoredAlarmMemory, now: Date): StoredAlarmMemory {
+  const nowMs = now.getTime();
+  const keep = (record: Readonly<Record<string, number>>, isLive: (value: number) => boolean) =>
+    Object.fromEntries(Object.entries(record).filter(([, value]) => isLive(value)));
+  return {
+    dismissed: keep(stored.dismissed, (at) => at >= nowMs - DISMISSAL_TTL_MS),
+    snoozed: keep(stored.snoozed, (until) => until >= nowMs - ALARM_GRACE_MS),
+  };
+}
+
 /** "Due in 10 min", "Due now" or "5 min overdue". */
 export function dueCountdown(task: Task, now: Date): string {
   const dueMs = new Date(task.dueAt).getTime();

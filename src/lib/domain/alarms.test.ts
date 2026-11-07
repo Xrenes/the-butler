@@ -6,7 +6,10 @@ import {
   describeLead,
   dueAlarms,
   dueCountdown,
+  planAlarms,
+  pruneStoredAlarmMemory,
   reminderFireAt,
+  toAlarmMemory,
 } from "./alarms";
 import type { Task } from "./types";
 
@@ -84,6 +87,73 @@ describe("dueAlarms", () => {
     const later = task({ id: "33333333-3333-4333-8333-333333333333", title: "B", dueAt: at(5).toISOString() });
     const earlier = task({ title: "A" });
     expect(dueAlarms([later, earlier], at(0), EMPTY_ALARM_MEMORY).map((t) => t.title)).toEqual(["A", "B"]);
+  });
+});
+
+describe("planAlarms", () => {
+  const second = (overrides: Partial<Task> = {}) =>
+    task({ id: "33333333-3333-4333-8333-333333333333", title: "Gym", dueAt: at(60).toISOString(), ...overrides });
+
+  it("plans the start alarm at the reminder time and the end alarm when the duration is over", () => {
+    const withEnd = task({ durationMinutes: 45, reminder: { enabled: true, leadMinutes: 0, includeTitle: false, atEnd: true } });
+    const plan = planAlarms([withEnd], at(-30));
+    expect(plan.map((alarm) => [alarm.kind, alarm.fireAt.toISOString()])).toEqual([
+      ["start", at(0).toISOString()],
+      ["end", at(45).toISOString()],
+    ]);
+  });
+
+  it("leaves out marked tasks, alarms that are off and alarms in the past", () => {
+    const off = second({ reminder: { enabled: false, leadMinutes: 0, includeTitle: false } });
+    expect(planAlarms([task({ status: "C" }), off], at(-30))).toHaveLength(0);
+    expect(planAlarms([task()], at(-9))).toHaveLength(0);
+  });
+
+  it("keeps an alarm that fired moments ago so a sync never cuts off one that is ringing", () => {
+    expect(planAlarms([task()], at(-5), EMPTY_ALARM_MEMORY, 10 * MIN)).toHaveLength(1);
+    expect(planAlarms([task()], at(5), EMPTY_ALARM_MEMORY, 10 * MIN)).toHaveLength(0);
+  });
+
+  it("replaces a snoozed alarm with its snooze and drops a dismissed one", () => {
+    const t = task();
+    const snoozedUntil = at(-5).getTime();
+    const memory = { dismissed: new Set([alarmKey(second())]), snoozedUntil: new Map([[alarmKey(t), snoozedUntil]]) };
+    const plan = planAlarms([t, second()], at(-8), memory);
+    expect(plan).toHaveLength(1);
+    expect(plan[0]?.kind).toBe("snooze");
+    expect(plan[0]?.fireAt.getTime()).toBe(snoozedUntil);
+    expect(plan[0]?.key).not.toBe(alarmKey(t));
+  });
+
+  it("gives the same alarm the same key every time, and a new key when the time changes", () => {
+    const first = planAlarms([task()], at(-30))[0]?.key;
+    expect(planAlarms([task()], at(-20))[0]?.key).toBe(first);
+    expect(planAlarms([task({ dueAt: at(30).toISOString() })], at(-20))[0]?.key).not.toBe(first);
+  });
+
+  it("lists the earliest alarm first", () => {
+    const plan = planAlarms([second(), task()], at(-30));
+    expect(plan.map((alarm) => alarm.task.title)).toEqual(["Laundry", "Gym"]);
+  });
+});
+
+describe("stored alarm memory", () => {
+  it("round-trips into the in-memory form", () => {
+    const memory = toAlarmMemory({ dismissed: { a: 1 }, snoozed: { b: 2 } });
+    expect([...memory.dismissed]).toEqual(["a"]);
+    expect(memory.snoozedUntil.get("b")).toBe(2);
+  });
+
+  it("forgets snoozes once their grace period is over and dismissals after a day", () => {
+    const now = at(0);
+    const stored = {
+      dismissed: { old: now.getTime() - 25 * 60 * MIN, fresh: now.getTime() - MIN },
+      snoozed: { expired: now.getTime() - ALARM_GRACE_MS - 1, live: now.getTime() - MIN },
+    };
+    expect(pruneStoredAlarmMemory(stored, now)).toEqual({
+      dismissed: { fresh: now.getTime() - MIN },
+      snoozed: { live: now.getTime() - MIN },
+    });
   });
 });
 

@@ -62,7 +62,8 @@ const LEAD_OPTIONS = REMINDER_LEAD_MINUTES.map((minutes) => ({
   value: String(minutes),
   label: LEAD_LABELS[minutes],
 }));
-const DEFAULT_REMINDER: Reminder = { enabled: true, leadMinutes: 10, includeTitle: false };
+/** New tasks ring exactly when they start; ringing early is a choice. */
+const DEFAULT_REMINDER: Reminder = { enabled: true, leadMinutes: 0, includeTitle: false };
 
 interface FormState {
   title: string;
