@@ -3,7 +3,7 @@ import { Alert, Linking, Pressable, Text, TextInput, View } from "react-native";
 import { describeLead } from "@domain/alarms";
 import { dayKeyOf, formatDayLabel, formatTime } from "@domain/dates";
 import { sortByDue } from "@domain/tasks";
-import { type PermissionState, permissionState, requestPermission, sendTestAlarm } from "../notifications";
+import { type AlarmMode, type PermissionState, alarmMode, permissionState, requestPermission, sendTestAlarm } from "../notifications";
 import { clearPin } from "../pin";
 import { TIME_ZONE, useStore } from "../store";
 import { useTheme } from "../theme";
@@ -38,10 +38,12 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
   const settings = state.settings;
   const [permission, setPermission] = useState<PermissionState | null>(null);
   const [testSent, setTestSent] = useState(false);
+  const [mode, setMode] = useState<AlarmMode | null>(null);
   const refreshPermission = () =>
-    permissionState()
-      .then(setPermission)
-      .catch(() => setPermission("denied"));
+    Promise.all([
+      permissionState().then(setPermission).catch(() => setPermission("denied")),
+      alarmMode().then(setMode).catch(() => setMode("off")),
+    ]);
 
   useEffect(() => {
     if (open) refreshPermission();
@@ -160,6 +162,7 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
               />
             ))}
           </View>
+          {settings.phoneAlarm && mode ? <AlarmModeNote mode={mode} /> : null}
           {settings.phoneAlarm && permission === "denied" ? (
             <Note>{"Notifications are blocked for this app. Turn them on in your phone's settings, or no alarm can ring."}</Note>
           ) : null}
@@ -214,6 +217,32 @@ export function SettingsSheet({ open, onClose }: { open: boolean; onClose: () =>
         </Group>
       </View>
     </Sheet>
+  );
+}
+
+const MODE_TEXT: Record<AlarmMode, { icon: IconName; text: string; good: boolean }> = {
+  alarm: { icon: "checkmark-circle", text: "Real alarms are on: tasks ring full screen until you stop them.", good: true },
+  notification: {
+    icon: "warning",
+    text: "Only notifications, which are easy to miss. Allow alarms in iPhone Settings → Apps → The Butler → Alarms.",
+    good: false,
+  },
+  off: { icon: "close-circle", text: "Nothing will ring. Allow alarms and notifications for The Butler in iPhone Settings.", good: false },
+};
+
+function AlarmModeNote({ mode }: { mode: AlarmMode }) {
+  const t = useTheme();
+  const { icon, text, good } = MODE_TEXT[mode];
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={text}
+      onPress={good ? undefined : () => Linking.openSettings()}
+      style={{ flexDirection: "row", gap: 8, alignItems: "center", marginTop: 10, padding: 12, borderRadius: 16, backgroundColor: t.surface2 }}
+    >
+      <Ionicons name={icon} size={18} color={good ? "#16A34A" : "#EAB308"} />
+      <Text style={{ color: t.fg, fontSize: 13, flex: 1 }}>{text}</Text>
+    </Pressable>
   );
 }
 

@@ -79,52 +79,27 @@ function alarmTitle(task: Task, category: Category | undefined, end: boolean): s
   return end ? `Time's up · ${task.title}` : `${task.title} · ${where}`;
 }
 
-/**
- * Replaces every scheduled alert with the ones the current tasks need. Called whenever tasks or
- * the alarm setting change, so a task marked done or edited never rings from an old schedule.
- */
-export async function syncAlarms(
-  tasks: readonly Task[],
-  categories: readonly Category[],
-  enabled: boolean,
-  now: Date = new Date(),
-): Promise<number> {
-  await Notifications.cancelAllScheduledNotificationsAsync();
-  if (!enabled) {
-    await cancelKitAlarms().catch(() => undefined);
-    return 0;
-  }
+/** Real alarms have no 64-alert cap like notifications, so more of the future is covered. */
+const MAX_KIT_ALARMS = 64;
 
-  const categoryById = new Map(categories.map((category) => [category.id, category]));
-  const upcoming = tasks
+type Upcoming = { task: Task; fireAt: Date; end: boolean };
+
+function upcomingAlarms(tasks: readonly Task[], now: Date): Upcoming[] {
+  return tasks
     .filter((task) => task.status === "pending")
     .flatMap((task) => [
       ...(task.reminder.enabled ? [{ task, fireAt: reminderFireAt(task), end: false }] : []),
       ...(task.reminder.atEnd ? [{ task, fireAt: endsAt(task), end: true }] : []),
     ])
     .filter(({ fireAt }) => fireAt.getTime() > now.getTime())
-    .sort((a, b) => a.fireAt.getTime() - b.fireAt.getTime())
-    .slice(0, MAX_TASKS);
+    .sort((a, b) => a.fireAt.getTime() - b.fireAt.getTime());
+}
 
-  // Installed iPhone app: real alarms that ring full screen like the Clock app, until stopped.
-  if (alarmKitAvailable() && (await requestAlarmKit().catch(() => false))) {
-    return replaceKitAlarms(
-      upcoming.map(({ task, fireAt, end }) => {
-        const category = categoryById.get(task.categoryId);
-        return { at: fireAt, title: alarmTitle(task, category, end), color: category?.color };
-      }),
-    );
-  }
-
-  if (!(await permissionGranted())) return 0;
-  await ensureAlarmChannel();
+async function scheduleNotifications(items: readonly Upcoming[], categoryById: Map<string, Category>, followUps: readonly number[]): Promise<number> {
   let scheduled = 0;
-  for (const { task, fireAt, end } of upcoming) {
+  for (const { task, fireAt, end } of items) {
     const category = categoryById.get(task.categoryId);
-    const times = [0, ...FOLLOW_UPS_MINUTES].map((minutes, nag) => ({
-      nag,
-      at: new Date(fireAt.getTime() + minutes * MS_PER_MINUTE),
-    }));
+    const times = [0, ...followUps].map((minutes, nag) => ({ nag, at: new Date(fireAt.getTime() + minutes * MS_PER_MINUTE) }));
     for (const { nag, at } of times) {
       await Notifications.scheduleNotificationAsync({
         content: content(task, category, nag, end),
@@ -134,6 +109,63 @@ export async function syncAlarms(
     }
   }
   return scheduled;
+}
+
+async function syncNow(tasks: readonly Task[], categories: readonly Category[], enabled: boolean, now: Date): Promise<number> {
+  await Notifications.cancelAllScheduledNotificationsAsync();
+  if (!enabled) {
+    await cancelKitAlarms().catch(() => undefined);
+    return 0;
+  }
+  const categoryById = new Map(categories.map((category) => [category.id, category]));
+  const upcoming = upcomingAlarms(tasks, now);
+  const notificationsAllowed = await permissionGranted();
+  if (notificationsAllowed) await ensureAlarmChannel();
+
+  // Installed iPhone app: real alarms that ring full screen like the Clock app, until stopped,
+  // plus a plain notification at the same moment as a backup in case an alarm ever fails.
+  if (alarmKitAvailable() && (await requestAlarmKit().catch(() => false))) {
+    const count = await replaceKitAlarms(
+      upcoming.slice(0, MAX_KIT_ALARMS).map(({ task, fireAt, end }) => {
+        const category = categoryById.get(task.categoryId);
+        return { at: fireAt, title: alarmTitle(task, category, end), color: category?.color };
+      }),
+    );
+    if (notificationsAllowed) await scheduleNotifications(upcoming.slice(0, MAX_TASKS), categoryById, []);
+    return count;
+  }
+
+  if (!notificationsAllowed) return 0;
+  return scheduleNotifications(upcoming.slice(0, MAX_TASKS), categoryById, FOLLOW_UPS_MINUTES);
+}
+
+let queue: Promise<unknown> = Promise.resolve();
+
+/**
+ * Replaces every scheduled alarm with the ones the current tasks need. Called whenever tasks or
+ * the alarm setting change and when the app opens, so nothing rings from an old schedule. Runs one
+ * at a time: two overlapping runs could otherwise cancel each other's alarms.
+ */
+export function syncAlarms(
+  tasks: readonly Task[],
+  categories: readonly Category[],
+  enabled: boolean,
+  now: Date = new Date(),
+): Promise<number> {
+  const run = queue.then(
+    () => syncNow(tasks, categories, enabled, now),
+    () => syncNow(tasks, categories, enabled, now),
+  );
+  queue = run.catch(() => undefined);
+  return run;
+}
+
+export type AlarmMode = "alarm" | "notification" | "off";
+
+/** What will actually ring: a real alarm, only a notification, or nothing. */
+export async function alarmMode(): Promise<AlarmMode> {
+  if (alarmKitAvailable() && (await requestAlarmKit().catch(() => false))) return "alarm";
+  return (await permissionGranted()) ? "notification" : "off";
 }
 
 /** Fires one alert in a few seconds so the person can hear what a reminder sounds like. */

@@ -30,6 +30,15 @@ function useAlarmSync() {
   const { state, ready } = useStore();
   const { tasks, categories, settings } = state;
   const [permission, setPermission] = useState<PermissionState | null>(null);
+  const [opened, setOpened] = useState(0);
+
+  // Re-schedule every time the app comes back to the front, so alarms always match the tasks.
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (next) => {
+      if (next === "active") setOpened((count) => count + 1);
+    });
+    return () => subscription.remove();
+  }, []);
 
   // Alarms are the core of the app, so ask for notification permission once, on first launch.
   useEffect(() => {
@@ -46,7 +55,7 @@ function useAlarmSync() {
   useEffect(() => {
     if (!ready) return;
     syncAlarms(tasks, categories, settings.phoneAlarm).catch(() => undefined);
-  }, [ready, tasks, categories, settings.phoneAlarm, permission]);
+  }, [ready, tasks, categories, settings.phoneAlarm, permission, opened]);
 }
 
 const SETTINGS_BUTTON = 44;
